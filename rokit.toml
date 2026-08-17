@@ -1,0 +1,8 @@
+# Roblox toolchain, managed by rokit (https://github.com/rojo-rbx/rokit)
+# Install rokit, then run `rokit install` here. Optional but recommended:
+# bl_analyze (luau-lsp + selene) and format-on-sync (stylua) use these.
+[tools]
+rojo = "rojo-rbx/rojo@7.5.1"
+stylua = "JohnnyMorganz/StyLua@2.1.0"
+selene = "Kampfkarren/selene@0.31.0"
+luau-lsp = "JohnnyMorganz/luau-lsp@1.69.0"

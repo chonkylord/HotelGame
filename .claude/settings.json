@@ -1,0 +1,36 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "ELECTRON_RUN_AS_NODE=1 \"/Applications/Bricklayer Editor.app/Contents/Frameworks/Bricklayer Helper (Plugin).app/Contents/MacOS/Bricklayer Helper (Plugin)\" \"/Applications/Bricklayer Editor.app/Contents/Resources/app/extensions/bricklayer.bricklayer-vscode/dist/mcp-companion.mjs\" hook post-edit-analyze"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "mcp__Roblox_Studio__start_stop_play",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "curl -s -m 10 -X POST \"http://127.0.0.1:34321/flush?token=bricklayer-local\" || echo bricklayer-flush-skipped"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "curl -s -m 10 -X POST \"http://127.0.0.1:34321/checkpoint?token=bricklayer-local&label=prompt\" || echo bricklayer-checkpoint-skipped"
+          }
+        ]
+      }
+    ]
+  }
+}

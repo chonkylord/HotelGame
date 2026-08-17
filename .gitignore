@@ -1,0 +1,8 @@
+node_modules/
+.bricklayer/
+bricklayer.map.json
+*.rbxl
+*.rbxl.lock
+*.rbxm
+.claude/settings.local.json
+.DS_Store

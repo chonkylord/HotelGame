@@ -1,0 +1,5 @@
+interface:
+  display_name: "Terrain Sculpting"
+  short_description: "Sculpt, blend, and verify Roblox terrain"
+  default_prompt: "Use $terrain to build and verify a coherent terrain feature in my Roblox place."
+
