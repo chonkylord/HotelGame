@@ -1,0 +1,23 @@
+{
+  "mcpServers": {
+    "bricklayer": {
+      "command": "/Applications/Bricklayer Editor.app/Contents/Frameworks/Bricklayer Helper (Plugin).app/Contents/MacOS/Bricklayer Helper (Plugin)",
+      "args": [
+        "/Applications/Bricklayer Editor.app/Contents/Resources/app/extensions/bricklayer.bricklayer-vscode/dist/mcp-companion.mjs",
+        "--project",
+        ".",
+        "--token",
+        "bricklayer-local",
+        "--port",
+        "34321"
+      ],
+      "env": {
+        "ELECTRON_RUN_AS_NODE": "1"
+      }
+    },
+    "Roblox_Studio": {
+      "command": "/Applications/RobloxStudio.app/Contents/MacOS/StudioMCP",
+      "args": []
+    }
+  }
+}

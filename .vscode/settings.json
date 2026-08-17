@@ -1,0 +1,17 @@
+{
+  "luau-lsp.sourcemap.enabled": true,
+  "luau-lsp.sourcemap.autogenerate": false,
+  "luau-lsp.types.roblox": true,
+  "[luau]": {
+    "editor.defaultFormatter": "JohnnyMorganz.stylua",
+    "editor.formatOnSave": false
+  },
+  "files.associations": {
+    "*.luau": "luau"
+  },
+  "files.watcherExclude": {
+    "**/bricklayer.map.json": true,
+    "**/.bricklayer/**": true
+  },
+  "bricklayer.companion.autoStart": true
+}

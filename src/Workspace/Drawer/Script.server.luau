@@ -1,0 +1,3 @@
+-- Drawer interaction is owned by ServerScriptService.FurnitureInteractionService.
+-- Keeping this script intentionally empty prevents the old ClickDetector-only
+-- tween from fighting the new server-authoritative ProximityPrompt interaction.
