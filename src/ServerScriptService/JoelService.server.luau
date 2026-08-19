@@ -133,6 +133,7 @@ local downedRevision = 0
 local activeDrag: ActiveDrag? = nil
 local catchInProgress = false
 local downedEndsAt = 0
+local cycleEpoch: number? = nil
 local publishedPhase = ""
 local publishedEndsAt = 0
 
@@ -187,6 +188,13 @@ end
 	instead of sixty times a second, and a player who joins eleven seconds into a
 	window reads the same nineteen as everyone already inside it.
 ]]
+local function clearCycle()
+	publishedPhase = ""
+	publishedEndsAt = 0
+	joelState:SetAttribute(JoelConfig.CyclePhaseAttribute, nil)
+	joelState:SetAttribute(JoelConfig.CycleEndsAtAttribute, nil)
+end
+
 local function publishCycle(phase: string, endsAt: number)
 	if publishedPhase == phase and math.abs(publishedEndsAt - endsAt) < 0.05 then
 		return
@@ -448,12 +456,58 @@ local function bindCharacter(player: Player, character: Model)
 	end)
 end
 
+--[[
+	The round starts when somebody finishes their first stay.
+
+	Not at server start, and not when Joel's rig loads. The intro deliberately
+	walks a new player through a lit, safe hotel to a room that seals behind
+	them and puts up a notice saying he is prowling — and JoelService already
+	refuses to hunt anyone still inside that sequence. Running the cycle
+	underneath it would mean the plaque counting down a hunt that cannot touch
+	anybody, and a player walking out of room 1 into the middle of a window
+	rather than the start of one.
+
+	Keyed on reaching COMPLETE rather than on the absence of an intro stage. The
+	two readings differ for a player the server has not classified yet, and here
+	the positive one is right: an unclassified player should not start the round
+	on everyone else's behalf. The opposite choice is the correct one a few lines
+	up in bindingIsHuntable, for the opposite reason — see the note there.
+
+	It arms once and stays armed. Later joiners inherit the running cycle, and
+	the plaque appears for each of them as they finish their own first stay.
+]]
+local function armCycle()
+	if cycleEpoch then
+		return
+	end
+	cycleEpoch = Workspace:GetServerTimeNow()
+	print("[JoelService] first stay over — the hunt cycle is running")
+end
+
+local function watchOnboarding(player: Player, connections: { RBXScriptConnection })
+	local attribute = OnboardingConfig.ATTRIBUTE
+	if player:GetAttribute(attribute) == OnboardingConfig.COMPLETE then
+		armCycle()
+		return
+	end
+	table.insert(
+		connections,
+		player:GetAttributeChangedSignal(attribute):Connect(function()
+			if player:GetAttribute(attribute) == OnboardingConfig.COMPLETE then
+				armCycle()
+			end
+		end)
+	)
+end
+
 local function connectPlayer(player: Player)
 	if playerConnections[player] then
 		return
 	end
 	local connections: { RBXScriptConnection } = {}
 	playerConnections[player] = connections
+
+	watchOnboarding(player, connections)
 
 	table.insert(
 		connections,
@@ -1216,12 +1270,9 @@ end
 -- Main loop ------------------------------------------------------------------
 
 local started = os.clock()
--- The first hunt window opens the instant the entry grace closes, so nobody
--- spawns into a plaque already counting down a window they never saw start.
-local cycleEpoch = Workspace:GetServerTimeNow() + JoelConfig.StartGraceSeconds
 local nextPerception = 0
 publishState()
-publishCycle(JoelConfig.PhaseRest, cycleEpoch)
+clearCycle()
 
 RunService.Heartbeat:Connect(function(delta: number)
 	if not joelRoot.Parent or joelHumanoid.Health <= 0 then
@@ -1243,7 +1294,6 @@ RunService.Heartbeat:Connect(function(delta: number)
 	end
 	if now - started < JoelConfig.StartGraceSeconds then
 		endActiveDrag(false, "start grace became active")
-		publishCycle(JoelConfig.PhaseRest, cycleEpoch)
 		setState("Dormant")
 		currentSpeed = 0
 		joelHumanoid.WalkSpeed = 0
@@ -1252,11 +1302,24 @@ RunService.Heartbeat:Connect(function(delta: number)
 		return
 	end
 
+	local epoch = cycleEpoch
+	if not epoch then
+		-- Nobody has left their first stay, so there is no round to hunt in. He
+		-- waits where he was placed, and with no phase published the plaque stays
+		-- off every screen rather than counting down nothing.
+		forgetTarget()
+		currentSpeed = 0
+		joelHumanoid.WalkSpeed = 0
+		joelHumanoid:MoveTo(joelRoot.Position)
+		setState("Dormant")
+		return
+	end
+
 	-- Both numbers come off the same GetServerTimeNow() reading, so the published
 	-- deadline is the boundary itself and holds still frame to frame instead of
 	-- drifting by a heartbeat's worth of clock each time.
 	local serverNow = Workspace:GetServerTimeNow()
-	local phase, remaining = JoelConfig.cycleAt(serverNow - cycleEpoch)
+	local phase, remaining = JoelConfig.cycleAt(serverNow - epoch)
 	publishCycle(phase, serverNow + remaining)
 
 	--[[

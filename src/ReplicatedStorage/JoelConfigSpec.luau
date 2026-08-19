@@ -331,7 +331,7 @@ return function()
 			the server rather than a quiet arithmetic slip.
 		]]
 		it("never reports a countdown outside the window it names", function()
-			for step = -200, 400 do
+			for step = -400, 2400 do
 				local elapsed = step * 0.37
 				local phase, remaining = Config.cycleAt(elapsed)
 				local window = if phase == Config.PhaseHunt then Config.HuntWindowSeconds else Config.RestWindowSeconds
@@ -352,12 +352,38 @@ return function()
 			expect(Config.RestWindowSeconds > Config.LoseInterestSeconds).to.equal(true)
 		end)
 
+		--[[
+			Direction, not just ratio. Swapping the two numbers still gives a
+			cycle that ticks over correctly and reads fine on the plaque, and it
+			quietly restores the design this replaced: if safety is the long
+			window, waiting it out is the correct play again.
+		]]
 		it("leaves more of the round dangerous than safe", function()
 			expect(Config.HuntWindowSeconds > Config.RestWindowSeconds).to.equal(true)
+			expect(Config.HuntWindowSeconds >= Config.RestWindowSeconds * 3).to.equal(true)
 		end)
 
-		it("gives the entry grace a window to hide behind", function()
-			expect(Config.StartGraceSeconds < Config.RestWindowSeconds).to.equal(true)
+		--[[
+			The plaque ceils the remaining seconds, so a window of 300.5 would show
+			05:01 for half a second and then 05:00 for a second and a half. Whole
+			seconds keep every tick the same length.
+		]]
+		it("is authored in whole seconds, which is what the plaque counts", function()
+			expect(Config.HuntWindowSeconds % 1).to.equal(0)
+			expect(Config.RestWindowSeconds % 1).to.equal(0)
+		end)
+
+		--[[
+			The stand-down is the window players plan an errand around, so it has
+			to be long enough to spend on one. A starving walker — the slowest the
+			survival system can make anybody — has to be able to cross the guest
+			wing and back inside it, or the safe window is only safe for whoever
+			was already standing where they needed to be.
+		]]
+		it("is long enough for the slowest player to actually go somewhere", function()
+			local crawl = SurvivalConfig.walkSpeedFor(0, false)
+			local wingDiagonal = math.sqrt(134 * 134 + 169 * 169)
+			expect(crawl * Config.RestWindowSeconds > wingDiagonal * 2).to.equal(true)
 		end)
 	end)
 

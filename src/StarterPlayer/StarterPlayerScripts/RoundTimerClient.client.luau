@@ -13,8 +13,15 @@
 	that used to share that space were moved down by its height: the clue
 	announcement banner in ClueClientUI and the first-stay objective card in
 	OnboardingClient, both shifted by the same amount so they keep the stacking
-	they already had with each other. The Superman cooldown keeps the top right
-	it was already sitting in and is not touched.
+	they already had with each other. The Superman cooldown was moved to the row
+	below, which is the only clearance that holds at every viewport width.
+
+	It is off screen for the whole first stay. Noel, the lift and the sealed room
+	are a guided sequence in a hotel where nothing is hunting yet, and a plaque
+	counting down a hunt during it would answer the question the notice on the
+	wall exists to ask. It appears when the local player reaches COMPLETE, which
+	is the same attribute flip that drops the lights, restarts the failing
+	fixtures and lets Joel see them.
 ]]
 
 local Players = game:GetService("Players")
@@ -24,6 +31,7 @@ local UserInputService = game:GetService("UserInputService")
 local Workspace = game:GetService("Workspace")
 
 local JoelConfig = require(ReplicatedStorage:WaitForChild("JoelConfig"))
+local OnboardingConfig = require(ReplicatedStorage:WaitForChild("OnboardingConfig"))
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
@@ -260,6 +268,18 @@ local shownPhase = ""
 local shownText = ""
 
 RunService.Heartbeat:Connect(function()
+	--[[
+		Written as "is in the intro" rather than "is not finished" to match
+		JoelService: a player the server has not classified yet is huntable, so
+		hiding the plaque from them would leave them hunted with no clock. The
+		server publishes nothing at all until the first player is through, so
+		this only matters for someone joining a round already under way.
+	]]
+	if OnboardingConfig.isIntroStage(player:GetAttribute(OnboardingConfig.ATTRIBUTE)) then
+		plaque.Visible = false
+		return
+	end
+
 	local phase = joelState:GetAttribute(JoelConfig.CyclePhaseAttribute)
 	local endsAt = joelState:GetAttribute(JoelConfig.CycleEndsAtAttribute)
 	local look = if type(phase) == "string" then PRESENTATION[phase] else nil

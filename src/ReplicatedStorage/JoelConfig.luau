@@ -89,9 +89,22 @@ JoelConfig.DefeatHoldSeconds = 3
 	else he does is legible from across the map, and the plaque at the top of
 	the screen can only count this down because the cycle is a published clock
 	rather than a mood.
+
+	Five against one is deliberately lopsided, and the order matters: the hunt
+	is the long window and the stand-down is the short one. Inverting them —
+	five minutes of safety punctuated by a minute of danger — makes waiting the
+	correct play again, which is the exact failure the cycle exists to remove.
+	The stand-down is not half the round, it is the minute you plan around:
+	bank the clue you are carrying, cross the corridor you have been staring
+	at, get a teammate off the floor. Long enough to spend on one errand and
+	nothing like long enough to finish the hunt in.
+
+	The cycle does not run from server start. JoelService arms it when the first
+	player leaves their first stay, because that is when the round actually
+	begins; until then Joel is dormant and the plaque is off every screen.
 ]]
-JoelConfig.HuntWindowSeconds = 30
-JoelConfig.RestWindowSeconds = 15
+JoelConfig.HuntWindowSeconds = 300
+JoelConfig.RestWindowSeconds = 60
 
 JoelConfig.PhaseHunt = "Hunt"
 JoelConfig.PhaseRest = "Rest"
