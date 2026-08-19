@@ -47,6 +47,53 @@ return function()
 		end)
 	end)
 
+	--[[
+		objectiveFor decides what the case ledger writes on its OBJECTIVE page and
+		what it pins to the ribbon beside its button, and the ledger tells the two
+		apart by exactly one thing: whether this returns nil. A stage that answers
+		with a line is the intro still asking the question, and the ribbon stays
+		pinned so a first-time player who has not found the button yet can still
+		read what to do. nil hands the question to the clue phase.
+
+		So the boundary below is not cosmetic — a stray line on SEALED or COMPLETE
+		would pin the ribbon open for the rest of the round, which is the failure
+		this whole rework exists to remove.
+	]]
+	describe("objectiveFor", function()
+		it("gives a line for each stage the player is being steered through", function()
+			expect(Config.objectiveFor(Config.TALK_TO_NOEL)).to.equal("Talk to Noel")
+			expect(Config.objectiveFor(Config.ENTER_ELEVATOR)).to.equal("Enter the elevator")
+			expect(Config.objectiveFor(Config.ENTER_ROOM)).to.equal("Enter your room")
+		end)
+
+		it("goes quiet once the steering is done", function()
+			-- SEALED is still an intro stage, but the player is locked in a room
+			-- being told a story; there is nothing to walk toward.
+			expect(Config.objectiveFor(Config.SEALED)).to.equal(nil)
+			expect(Config.objectiveFor(Config.COMPLETE)).to.equal(nil)
+		end)
+
+		it("says nothing for a stage it does not recognise", function()
+			expect(Config.objectiveFor(nil)).to.equal(nil)
+			expect(Config.objectiveFor("")).to.equal(nil)
+			expect(Config.objectiveFor("Whatever")).to.equal(nil)
+			expect(Config.objectiveFor(7)).to.equal(nil)
+		end)
+
+		--[[
+			Every stage that gets an arrow drawn on the floor must also get words.
+			OnboardingClient picks its highlight target from the stage and the
+			ledger picks the text from the same stage; a stage with one and not the
+			other is an arrow pointing at something the player was never told to
+			look for.
+		]]
+		it("covers every stage that OnboardingClient draws a target for", function()
+			for _, stage in { Config.TALK_TO_NOEL, Config.ENTER_ELEVATOR, Config.ENTER_ROOM } do
+				expect(type(Config.objectiveFor(stage))).to.equal("string")
+			end
+		end)
+	end)
+
 	describe("the sealed-room beat", function()
 		-- The server sleeps CARD_TOTAL and then flips the player to Complete,
 		-- while the client animates the three parts separately. If they stop

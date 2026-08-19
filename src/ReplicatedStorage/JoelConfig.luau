@@ -103,8 +103,8 @@ JoelConfig.DefeatHoldSeconds = 3
 	player leaves their first stay, because that is when the round actually
 	begins; until then Joel is dormant and the plaque is off every screen.
 ]]
-JoelConfig.HuntWindowSeconds = 300
-JoelConfig.RestWindowSeconds = 60
+JoelConfig.HuntWindowSeconds = 60
+JoelConfig.RestWindowSeconds = 300
 
 JoelConfig.PhaseHunt = "Hunt"
 JoelConfig.PhaseRest = "Rest"

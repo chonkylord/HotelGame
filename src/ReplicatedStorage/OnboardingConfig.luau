@@ -38,6 +38,27 @@ local function isIntroStage(stage: any): boolean
 	return type(stage) == "string" and INTRO_STAGES[stage] == true
 end
 
+--[[
+	The one line describing what the player is being asked to do right now, or
+	nil once the intro is over and the clue chain takes the question over.
+
+	It lives in the shared config rather than in the client that draws it
+	because two surfaces now need exactly these words: the case ledger's
+	OBJECTIVE page and the pinned ribbon beside the ledger button. When the
+	strings lived in OnboardingClient, giving a second surface the same text
+	meant copying them, and a copy is a thing that drifts.
+]]
+local function objectiveFor(stage: any): string?
+	if stage == TALK_TO_NOEL then
+		return "Talk to Noel"
+	elseif stage == ENTER_ELEVATOR then
+		return "Enter the elevator"
+	elseif stage == ENTER_ROOM then
+		return "Enter your room"
+	end
+	return nil
+end
+
 -- The sealed-room beat: how long the leaf stays shut, and how long the notice
 -- that follows it is on screen. The server owns both clocks — it fires the card
 -- and it flips the player to Complete CARD_TOTAL seconds later — so the client
@@ -56,6 +77,7 @@ local Config = {
 	COMPLETE = COMPLETE,
 
 	isIntroStage = isIntroStage,
+	objectiveFor = objectiveFor,
 
 	LOBBY_CAB_ID = "Lobby",
 	ROOMS_CAB_ID = "Rooms",

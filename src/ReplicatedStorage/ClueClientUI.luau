@@ -3,8 +3,15 @@
 	Client presentation for the shared hotel clue chain. ClueService owns every
 	answer, digit, phase, and deadline; this module reads the replicated case-file
 	state, asks the server to grade typed answers, and frees the mouse only while
-	a clue is open. Keeping the permanent objective card separate from the modal
-	lets both occupy their registered DisplayOrders without hiding other systems.
+	a clue is open.
+
+	What is left here is the part a player cannot dismiss: the clue itself when
+	the hotel hands them one, and the banner announcing what somebody found. The
+	always-on card that used to sit in the bottom-left corner is gone --
+	CaseLedgerClient owns the standing readout now, behind a button, because two
+	permanent paper cards plus a banner in the same screen was more paper than
+	the screen had room for. This module still owns the state; it just no longer
+	keeps a copy of it pinned to the corner.
 ]]
 
 local GuiService = game:GetService("GuiService")
@@ -25,9 +32,7 @@ local announceEvent = remotes:WaitForChild(ClueConfig.AnnounceEvent) :: RemoteEv
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
-local clueState = Workspace:WaitForChild(ClueConfig.StateFolder)
 
-local CARD_GUI_NAME = "ClueCaseFile"
 local MODAL_GUI_NAME = "ClueModal"
 local MOUSE_RELEASE_BINDING = "ClueModalMouseRelease"
 
@@ -39,14 +44,8 @@ local BLOOD = Color3.fromRGB(112, 43, 35)
 local MOSS = Color3.fromRGB(49, 67, 55)
 local SHADOW = Color3.fromRGB(18, 14, 10)
 
-local CARD_WIDTH = 320
-local CARD_HEIGHT = 126
--- SurvivalHUD occupies the lowest 114 pixels on the left. The case file lives
--- above it instead of covering health, hunger, or sprint information.
-local CARD_BOTTOM = 134
-
 for _, existing in playerGui:GetChildren() do
-	if existing.Name == CARD_GUI_NAME or existing.Name == MODAL_GUI_NAME then
+	if existing.Name == MODAL_GUI_NAME then
 		existing:Destroy()
 	end
 end
@@ -91,167 +90,6 @@ local function agedPaper(parent: GuiObject)
 	gradient.Rotation = 94
 	gradient.Parent = parent
 end
-
-local function paperRule(parent: GuiObject, y: number, transparency: number)
-	local rule = Instance.new("Frame")
-	rule.BackgroundColor3 = PAPER_DARK
-	rule.BackgroundTransparency = transparency
-	rule.BorderSizePixel = 0
-	rule.Position = UDim2.fromOffset(17, y)
-	rule.Size = UDim2.fromOffset(CARD_WIDTH - 34, 1)
-	rule.ZIndex = 2
-	rule.Parent = parent
-end
-
--- Case-file card -------------------------------------------------------------
-
-local cardGui = Instance.new("ScreenGui")
-cardGui.Name = CARD_GUI_NAME
--- SurvivalHUD is order 6. Keeping this at 5 guarantees its critical meters
--- remain visible even if a very small viewport forces the layouts together.
-cardGui.DisplayOrder = 5
-cardGui.IgnoreGuiInset = false
-cardGui.ResetOnSpawn = false
-cardGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-cardGui.Parent = playerGui
-
-local cardShadow = Instance.new("Frame")
-cardShadow.AnchorPoint = Vector2.new(0, 1)
-cardShadow.BackgroundColor3 = SHADOW
-cardShadow.BackgroundTransparency = 0.57
-cardShadow.BorderSizePixel = 0
-cardShadow.Position = UDim2.new(0, 29, 1, -(CARD_BOTTOM - 5))
-cardShadow.Size = UDim2.fromOffset(CARD_WIDTH, CARD_HEIGHT)
-corner(cardShadow, 3)
-cardShadow.Parent = cardGui
-
-local cardShadowScale = Instance.new("UIScale")
-cardShadowScale.Parent = cardShadow
-
-local card = Instance.new("Frame")
-card.Name = "CaseFileCard"
-card.AnchorPoint = Vector2.new(0, 1)
-card.BackgroundColor3 = PAPER
-card.BorderSizePixel = 0
-card.Position = UDim2.new(0, 24, 1, -CARD_BOTTOM)
-card.Rotation = -0.25
-card.Size = UDim2.fromOffset(CARD_WIDTH, CARD_HEIGHT)
-corner(card, 3)
-stroke(card, INK, 1, 0.24)
-agedPaper(card)
-card.Parent = cardGui
-
-local cardScale = Instance.new("UIScale")
-cardScale.Parent = card
-
--- A slightly raised manila tab makes the HUD read as a physical hotel file,
--- not another modern status panel.
-local folderTab = Instance.new("Frame")
-folderTab.BackgroundColor3 = PAPER_LIGHT
-folderTab.BorderSizePixel = 0
-folderTab.Position = UDim2.fromOffset(13, -10)
-folderTab.Size = UDim2.fromOffset(112, 15)
-folderTab.ZIndex = 1
-corner(folderTab, 2)
-stroke(folderTab, INK, 1, 0.62)
-folderTab.Parent = card
-
-local tabLabel = Instance.new("TextLabel")
-tabLabel.BackgroundTransparency = 1
-tabLabel.Font = Enum.Font.RobotoMono
-tabLabel.Position = UDim2.fromOffset(8, 1)
-tabLabel.Size = UDim2.fromOffset(96, 12)
-tabLabel.Text = "FILE 05 / ACTIVE"
-tabLabel.TextColor3 = INK
-tabLabel.TextSize = 8
-tabLabel.TextXAlignment = Enum.TextXAlignment.Left
-tabLabel.ZIndex = 2
-tabLabel.Parent = folderTab
-
-local cardRule = Instance.new("Frame")
-cardRule.BackgroundColor3 = BLOOD
-cardRule.BorderSizePixel = 0
-cardRule.Position = UDim2.fromOffset(0, 0)
-cardRule.Size = UDim2.fromOffset(3, CARD_HEIGHT)
-cardRule.ZIndex = 3
-cardRule.Parent = card
-
-local cardTitle = Instance.new("TextLabel")
-cardTitle.BackgroundTransparency = 1
-cardTitle.Font = Enum.Font.RobotoMono
-cardTitle.Position = UDim2.fromOffset(17, 8)
-cardTitle.Size = UDim2.fromOffset(286, 15)
-cardTitle.Text = "GRAND HOTEL  /  INCIDENT FILE"
-cardTitle.TextColor3 = BLOOD
-cardTitle.TextSize = 11
-cardTitle.TextXAlignment = Enum.TextXAlignment.Left
-cardTitle.ZIndex = 3
-cardTitle.Parent = card
-
-local nodeLabel = Instance.new("TextLabel")
-nodeLabel.BackgroundTransparency = 1
-nodeLabel.Font = Enum.Font.RobotoMono
-nodeLabel.Position = UDim2.fromOffset(17, 27)
-nodeLabel.Size = UDim2.fromOffset(132, 18)
-nodeLabel.Text = "ENTRY 01 / 05"
-nodeLabel.TextColor3 = INK
-nodeLabel.TextSize = 12
-nodeLabel.TextXAlignment = Enum.TextXAlignment.Left
-nodeLabel.ZIndex = 3
-nodeLabel.Parent = card
-
-local digitsLabel = Instance.new("TextLabel")
-digitsLabel.BackgroundTransparency = 1
-digitsLabel.Font = Enum.Font.RobotoMono
-digitsLabel.Position = UDim2.fromOffset(150, 25)
-digitsLabel.Size = UDim2.fromOffset(153, 20)
-digitsLabel.Text = "_  _  _  _  _"
-digitsLabel.TextColor3 = MOSS
-digitsLabel.TextSize = 16
-digitsLabel.TextXAlignment = Enum.TextXAlignment.Right
-digitsLabel.ZIndex = 3
-digitsLabel.Parent = card
-
-paperRule(card, 49, 0.38)
-paperRule(card, 104, 0.68)
-
-local riddleLabel = Instance.new("TextLabel")
-riddleLabel.Name = "CurrentRiddle"
-riddleLabel.BackgroundTransparency = 1
-riddleLabel.Font = Enum.Font.SpecialElite
-riddleLabel.Position = UDim2.fromOffset(17, 56)
-riddleLabel.Size = UDim2.fromOffset(286, 45)
-riddleLabel.Text = "The desk has not opened the file yet."
-riddleLabel.TextColor3 = INK
-riddleLabel.TextSize = 14
-riddleLabel.TextTruncate = Enum.TextTruncate.AtEnd
-riddleLabel.TextWrapped = true
-riddleLabel.TextXAlignment = Enum.TextXAlignment.Left
-riddleLabel.TextYAlignment = Enum.TextYAlignment.Top
-riddleLabel.ZIndex = 3
-riddleLabel.Parent = card
-
-local timerLabel = Instance.new("TextLabel")
-timerLabel.BackgroundTransparency = 1
-timerLabel.Font = Enum.Font.RobotoMono
-timerLabel.Position = UDim2.fromOffset(17, 109)
-timerLabel.Size = UDim2.fromOffset(286, 11)
-timerLabel.Text = "CLICK / TAP TO OPEN THE FULL FILE"
-timerLabel.TextColor3 = PAPER_DARK
-timerLabel.TextSize = 9
-timerLabel.TextXAlignment = Enum.TextXAlignment.Right
-timerLabel.ZIndex = 3
-timerLabel.Parent = card
-
-local cardOpenButton = Instance.new("TextButton")
-cardOpenButton.Name = "OpenCaseFile"
-cardOpenButton.Active = true
-cardOpenButton.AutoButtonColor = false
-cardOpenButton.BackgroundTransparency = 1
-cardOpenButton.Size = UDim2.fromScale(1, 1)
-cardOpenButton.Text = ""
-cardOpenButton.ZIndex = 8
-cardOpenButton.Parent = card
 
 -- Modal ----------------------------------------------------------------------
 
@@ -501,38 +339,6 @@ local function closeModal()
 	restoreMouse()
 end
 
-local function spacedDigits(masked: string): string
-	local digits = table.create(#masked)
-	for index = 1, #masked do
-		digits[index] = string.sub(masked, index, index)
-	end
-	return table.concat(digits, "  ")
-end
-
-local function refreshCard()
-	local chainLength = clueState:GetAttribute(ClueConfig.ChainLengthAttribute)
-	local nodeIndex = clueState:GetAttribute(ClueConfig.NodeIndexAttribute)
-	local digits = clueState:GetAttribute(ClueConfig.DigitsKnownAttribute)
-	local riddle = clueState:GetAttribute(ClueConfig.CurrentRiddleAttribute)
-	local phase = clueState:GetAttribute(ClueConfig.PhaseAttribute)
-
-	local length = if typeof(chainLength) == "number"
-		then math.max(1, math.floor(chainLength))
-		else ClueConfig.ChainLength
-	local index = if typeof(nodeIndex) == "number" then math.clamp(math.floor(nodeIndex), 1, length) else 1
-	nodeLabel.Text = if phase == ClueConfig.PhaseHunt
-		then `ENTRY {string.format("%02d", index)} / {string.format("%02d", length)}`
-		else string.upper(if typeof(phase) == "string" then phase else ClueConfig.PhaseHunt)
-	digitsLabel.Text = spacedDigits(if typeof(digits) == "string" then digits else string.rep("_", length))
-	local riddleText = if typeof(riddle) == "string" and riddle ~= "" then riddle else "The paper is blank. For now."
-	riddleLabel.Text = riddleText
-	riddleLabel.TextSize = if #riddleText > 145 then 12 elseif #riddleText > 100 then 13 else 14
-	cardTitle.Text = if phase == ClueConfig.PhaseWon
-		then "CASE CLOSED  /  SURVIVOR RECORDED"
-		else "GRAND HOTEL  /  INCIDENT FILE"
-	cardRule.BackgroundColor3 = if phase == ClueConfig.PhaseWon then MOSS else BLOOD
-end
-
 local function refreshScale()
 	local camera = Workspace.CurrentCamera
 	if not camera then
@@ -542,12 +348,6 @@ local function refreshScale()
 	local modalScale = math.clamp(math.min((viewport.X - 24) / 610, (viewport.Y - 24) / 430), 0.48, 1)
 	panelScale.Scale = modalScale
 	modalShadowScale.Scale = modalScale
-	local compactScale = math.clamp(math.min(viewport.X / 430, viewport.Y / 620), 0.76, 1)
-	cardScale.Scale = compactScale
-	cardShadowScale.Scale = compactScale
-	local left = if viewport.X <= 500 then 12 else 24
-	card.Position = UDim2.new(0, left, 1, -CARD_BOTTOM)
-	cardShadow.Position = UDim2.new(0, left + 5, 1, -(CARD_BOTTOM - 5))
 end
 
 local function showToast(text: string, good: boolean)
@@ -614,25 +414,7 @@ local function openModal(payload: any)
 	end
 end
 
-local function openCurrentCaseFile()
-	local riddle = clueState:GetAttribute(ClueConfig.CurrentRiddleAttribute)
-	local phase = clueState:GetAttribute(ClueConfig.PhaseAttribute)
-	openModal({
-		kind = "Case file",
-		riddle = if typeof(riddle) == "string" and riddle ~= "" then riddle else "The paper is blank. For now.",
-		prompt = `CURRENT STATUS  /  {string.upper(if typeof(phase) == "string" then phase else "Hunt")}`,
-	})
-end
-
 openEvent.OnClientEvent:Connect(openModal)
-cardOpenButton.Activated:Connect(openCurrentCaseFile)
-cardOpenButton.MouseEnter:Connect(function()
-	cardOpenButton.BackgroundColor3 = PAPER_LIGHT
-	cardOpenButton.BackgroundTransparency = 0.88
-end)
-cardOpenButton.MouseLeave:Connect(function()
-	cardOpenButton.BackgroundTransparency = 1
-end)
 
 resultEvent.OnClientEvent:Connect(function(payload: any)
 	if typeof(payload) ~= "table" then
@@ -695,46 +477,20 @@ UserInputService.InputBegan:Connect(function(input: InputObject, processed: bool
 	end
 end)
 
-for _, attribute in
-	{
-		ClueConfig.ChainLengthAttribute,
-		ClueConfig.NodeIndexAttribute,
-		ClueConfig.DigitsKnownAttribute,
-		ClueConfig.CurrentRiddleAttribute,
-		ClueConfig.PhaseAttribute,
-	}
-do
-	clueState:GetAttributeChangedSignal(attribute):Connect(refreshCard)
-end
-
 player.CharacterAdded:Connect(function()
 	closeModal()
 end)
 
-local timerAccumulator = 0
+local scaleAccumulator = 0
 RunService.RenderStepped:Connect(function(delta: number)
-	timerAccumulator += delta
-	if timerAccumulator < 0.1 then
+	scaleAccumulator += delta
+	if scaleAccumulator < 0.1 then
 		return
 	end
-	timerAccumulator = 0
+	scaleAccumulator = 0
 	refreshScale()
-	local dialogue = playerGui:FindFirstChild("DialogueUI")
-	cardGui.Enabled = not isOpen and not (dialogue and dialogue:IsA("ScreenGui") and dialogue.Enabled)
-
-	local phase = clueState:GetAttribute(ClueConfig.PhaseAttribute)
-	local escapeEndsAt = clueState:GetAttribute(ClueConfig.EscapeEndsAtAttribute)
-	if phase == ClueConfig.PhaseEscape and typeof(escapeEndsAt) == "number" then
-		local remaining = math.max(0, math.ceil(escapeEndsAt - Workspace:GetServerTimeNow()))
-		timerLabel.Text = `JOEL RISES IN  /  {math.floor(remaining / 60)}:{string.format("%02d", remaining % 60)}`
-		timerLabel.TextColor3 = BLOOD
-	else
-		timerLabel.Text = "CLICK / TAP TO OPEN THE FULL FILE"
-		timerLabel.TextColor3 = PAPER_DARK
-	end
 end)
 
-refreshCard()
 refreshScale()
 
 return true

@@ -1,7 +1,14 @@
 --!strict
 -- Client presentation for the first-stay tutorial. The server advances the
--- Player's OnboardingStage; this script only turns that state into a rustic
--- objective card, a ground guide arrow, and local-only silhouettes.
+-- Player's OnboardingStage; this script only turns that state into a ground
+-- guide arrow and local-only silhouettes.
+--
+-- The words used to live here too, on a 430x78 card pinned to the top of the
+-- screen. That card sat in the same band as the clue announcement banner and,
+-- being a higher DisplayOrder, clipped it. CaseLedgerClient owns the text now:
+-- it pins the current objective to a slim ribbon beside its button for as long
+-- as the intro lasts. What is left here is the part that has to be drawn in the
+-- world rather than on the screen.
 
 local CollectionService = game:GetService("CollectionService")
 local Players = game:GetService("Players")
@@ -17,11 +24,6 @@ local playerGui = player:WaitForChild("PlayerGui")
 local GUI_NAME = "FirstStayOnboarding"
 local TARGET_REFRESH_INTERVAL = 0.75
 
-local INK = Color3.fromRGB(52, 36, 22)
-local INK_SOFT = Color3.fromRGB(122, 96, 66)
-local EDGE = Color3.fromRGB(74, 52, 33)
-local PAPER = Color3.fromRGB(238, 224, 190)
-local PAPER_LOW = Color3.fromRGB(219, 200, 160)
 local GUIDE = Color3.fromRGB(231, 194, 103)
 local GROUND_ARROW_IMAGE = "rbxassetid://122620264598060"
 
@@ -29,22 +31,6 @@ type Target = {
 	highlight: Instance,
 	arrow: BasePart,
 }
-
-local function corner(instance: GuiObject, radius: number)
-	local ui = Instance.new("UICorner")
-	ui.CornerRadius = UDim.new(0, radius)
-	ui.Parent = instance
-end
-
-local function stroke(instance: GuiObject, color: Color3, thickness: number, transparency: number?): UIStroke
-	local line = Instance.new("UIStroke")
-	line.Color = color
-	line.Thickness = thickness
-	line.Transparency = transparency or 0
-	line.LineJoinMode = Enum.LineJoinMode.Round
-	line.Parent = instance
-	return line
-end
 
 for _, existing in ipairs(playerGui:GetChildren()) do
 	if existing.Name == GUI_NAME then
@@ -54,94 +40,14 @@ end
 
 local gui = Instance.new("ScreenGui")
 gui.Name = GUI_NAME
-gui.DisplayOrder = 46
+-- Highlights and the floor arrow are the only things parented here now, and
+-- neither is a 2D element, so this no longer needs to outrank the HUD. It sits
+-- above the plaque (9) purely to keep a stable, documented slot.
+gui.DisplayOrder = 12
 gui.IgnoreGuiInset = false
 gui.ResetOnSpawn = false
 gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 gui.Parent = playerGui
-
-local shadow = Instance.new("Frame")
-shadow.Name = "ObjectiveShadow"
-shadow.AnchorPoint = Vector2.new(0.5, 0)
-shadow.BackgroundColor3 = Color3.fromRGB(22, 14, 8)
-shadow.BackgroundTransparency = 0.48
-shadow.BorderSizePixel = 0
-shadow.Position = UDim2.new(0.5, 5, 0, 128)
-shadow.Size = UDim2.fromOffset(430, 78)
-shadow.Visible = false
-shadow.ZIndex = 1
-corner(shadow, 18)
-shadow.Parent = gui
-
-local card = Instance.new("Frame")
-card.Name = "ObjectiveCard"
-card.AnchorPoint = Vector2.new(0.5, 0)
-card.BackgroundColor3 = PAPER
-card.BorderSizePixel = 0
--- Clear of the round plaque above it; see the note on the clue banner, which was
--- shifted by the same amount.
-card.Position = UDim2.new(0.5, 0, 0, 122)
-card.Rotation = -0.5
-card.Size = UDim2.fromOffset(430, 78)
-card.Visible = false
-card.ZIndex = 2
-corner(card, 18)
-stroke(card, EDGE, 3)
-card.Parent = gui
-
-local aged = Instance.new("UIGradient")
-aged.Color = ColorSequence.new({
-	ColorSequenceKeypoint.new(0, Color3.fromRGB(247, 238, 213)),
-	ColorSequenceKeypoint.new(0.55, Color3.fromRGB(236, 222, 189)),
-	ColorSequenceKeypoint.new(1, PAPER_LOW),
-})
-aged.Rotation = 90
-aged.Parent = card
-
-local inner = Instance.new("Frame")
-inner.BackgroundTransparency = 1
-inner.Position = UDim2.fromOffset(7, 7)
-inner.Size = UDim2.new(1, -14, 1, -14)
-inner.ZIndex = 3
-corner(inner, 12)
-stroke(inner, INK_SOFT, 1, 0.5)
-inner.Parent = card
-
-local heading = Instance.new("TextLabel")
-heading.BackgroundTransparency = 1
-heading.Font = Enum.Font.Garamond
-heading.Position = UDim2.fromOffset(24, 11)
-heading.Size = UDim2.new(1, -48, 0, 18)
-heading.Text = "CURRENT OBJECTIVE"
-heading.TextColor3 = INK_SOFT
-heading.TextSize = 13
-heading.TextXAlignment = Enum.TextXAlignment.Center
-heading.ZIndex = 4
-heading.Parent = card
-
-local divider = Instance.new("Frame")
-divider.AnchorPoint = Vector2.new(0.5, 0)
-divider.BackgroundColor3 = INK_SOFT
-divider.BackgroundTransparency = 0.42
-divider.BorderSizePixel = 0
-divider.Position = UDim2.new(0.5, 0, 0, 31)
-divider.Size = UDim2.new(1, -82, 0, 1)
-divider.ZIndex = 4
-divider.Parent = card
-
-local objective = Instance.new("TextLabel")
-objective.Name = "ObjectiveText"
-objective.BackgroundTransparency = 1
-objective.Font = Enum.Font.Garamond
-objective.Position = UDim2.fromOffset(24, 34)
-objective.Size = UDim2.new(1, -48, 0, 33)
-objective.Text = ""
-objective.TextColor3 = INK
-objective.TextSize = 23
-objective.TextXAlignment = Enum.TextXAlignment.Center
-objective.TextYAlignment = Enum.TextYAlignment.Center
-objective.ZIndex = 4
-objective.Parent = card
 
 -- One slim, filled graphic: it sits in 3D like a floor decal, but uses the
 -- player's root as its Adornee so no invisible Part is added to the map.
@@ -259,24 +165,8 @@ local function applyTarget(stage: any)
 	):Play()
 end
 
-local function objectiveFor(stage: any): string?
-	if stage == OnboardingConfig.TALK_TO_NOEL then
-		return "Talk to Noel"
-	elseif stage == OnboardingConfig.ENTER_ELEVATOR then
-		return "Enter the elevator"
-	elseif stage == OnboardingConfig.ENTER_ROOM then
-		return "Enter your room"
-	end
-	return nil
-end
-
 local function refreshStage()
 	local stage = player:GetAttribute(OnboardingConfig.ATTRIBUTE)
-	local text = objectiveFor(stage)
-	local visible = text ~= nil
-	objective.Text = text or ""
-	card.Visible = visible
-	shadow.Visible = visible
 	applyTarget(stage)
 	lastTargetRefresh = os.clock()
 end
@@ -330,7 +220,7 @@ RunService.RenderStepped:Connect(function()
 
 	local stage = player:GetAttribute(OnboardingConfig.ATTRIBUTE)
 	if
-		objectiveFor(stage) ~= nil
+		OnboardingConfig.objectiveFor(stage) ~= nil
 		and (not activeHighlight or not activeHighlight.Adornee or not arrowTarget or not arrowTarget.Parent)
 		and os.clock() - lastTargetRefresh >= TARGET_REFRESH_INTERVAL
 	then
