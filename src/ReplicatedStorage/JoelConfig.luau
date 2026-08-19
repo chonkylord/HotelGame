@@ -72,6 +72,37 @@ JoelConfig.DownedSeconds = 120
 JoelConfig.DefeatRange = 24
 JoelConfig.DefeatHoldSeconds = 3
 
+-- Hunt cycle -----------------------------------------------------------------
+
+--[[
+	Joel hunts in windows rather than for the whole round.
+
+	Unbroken pursuit left the round nowhere to breathe. The clue chain wants
+	players crossing open corridors to read riddles and carry relics, and a
+	hunter who never stands down turns every crossing into the same coin flip —
+	so the sensible play was always to wait, which is the one thing a horror
+	round cannot afford to reward. Cutting the hunt into a window followed by a
+	shorter stand-down gives the round a pulse: a stretch where moving is
+	suicide, then one where it is the only thing worth doing.
+
+	It is also the first thing about Joel a player can actually read. Nothing
+	else he does is legible from across the map, and the plaque at the top of
+	the screen can only count this down because the cycle is a published clock
+	rather than a mood.
+]]
+JoelConfig.HuntWindowSeconds = 30
+JoelConfig.RestWindowSeconds = 15
+
+JoelConfig.PhaseHunt = "Hunt"
+JoelConfig.PhaseRest = "Rest"
+JoelConfig.PhaseDowned = "Downed"
+
+-- Two attributes on one folder, and every client derives its own seconds from
+-- them. See JoelConfig.cycleAt below and RoundTimerClient.
+JoelConfig.StateFolder = "JoelState"
+JoelConfig.CyclePhaseAttribute = "HuntCyclePhase"
+JoelConfig.CycleEndsAtAttribute = "HuntCycleEndsAt"
+
 -- Perception and memory -------------------------------------------------------
 
 JoelConfig.SightRange = 140
@@ -250,6 +281,35 @@ end
 
 function JoelConfig.dragFailureExpired(failedAt: number, now: number): boolean
 	return now - failedAt >= JoelConfig.DragPathFailureSeconds
+end
+
+function JoelConfig.cycleLength(): number
+	return JoelConfig.HuntWindowSeconds + JoelConfig.RestWindowSeconds
+end
+
+--[[
+	Which window `elapsed` seconds past the cycle epoch falls in, and how much of
+	it is left.
+
+	Deriving the phase from an epoch instead of accumulating a counter is what
+	lets the server publish two numbers that never change between transitions
+	while every client still agrees to the frame, including one that joined
+	eleven seconds into a window.
+
+	Luau's `%` is floored, so a negative elapsed — a client whose clock momentarily
+	reads behind the published epoch — wraps to the end of the cycle rather than
+	returning a negative offset and reporting a window that has not started.
+]]
+function JoelConfig.cycleAt(elapsed: number): (string, number)
+	local length = JoelConfig.cycleLength()
+	if length <= 0 then
+		return JoelConfig.PhaseHunt, math.huge
+	end
+	local into = elapsed % length
+	if into < JoelConfig.HuntWindowSeconds then
+		return JoelConfig.PhaseHunt, JoelConfig.HuntWindowSeconds - into
+	end
+	return JoelConfig.PhaseRest, length - into
 end
 
 return JoelConfig

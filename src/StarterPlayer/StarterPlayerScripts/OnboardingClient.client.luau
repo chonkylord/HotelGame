@@ -66,7 +66,7 @@ shadow.AnchorPoint = Vector2.new(0.5, 0)
 shadow.BackgroundColor3 = Color3.fromRGB(22, 14, 8)
 shadow.BackgroundTransparency = 0.48
 shadow.BorderSizePixel = 0
-shadow.Position = UDim2.new(0.5, 5, 0, 26)
+shadow.Position = UDim2.new(0.5, 5, 0, 128)
 shadow.Size = UDim2.fromOffset(430, 78)
 shadow.Visible = false
 shadow.ZIndex = 1
@@ -78,7 +78,9 @@ card.Name = "ObjectiveCard"
 card.AnchorPoint = Vector2.new(0.5, 0)
 card.BackgroundColor3 = PAPER
 card.BorderSizePixel = 0
-card.Position = UDim2.new(0.5, 0, 0, 20)
+-- Clear of the round plaque above it; see the note on the clue banner, which was
+-- shifted by the same amount.
+card.Position = UDim2.new(0.5, 0, 0, 122)
 card.Rotation = -0.5
 card.Size = UDim2.fromOffset(430, 78)
 card.Visible = false

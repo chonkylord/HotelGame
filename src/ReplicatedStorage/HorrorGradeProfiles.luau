@@ -1,16 +1,24 @@
 --!strict
 --[[
-	The two grades the hotel is lit with.
+	The grades the hotel is lit with.
 
 	HorrorLighting applies `Dark` on the server at startup; HorrorVisibilityZones
-	tweens the local player between `Dark` and `Lobby` as they walk in and out of
-	the entrance hall. They used to hold private copies of the same eight numbers,
-	so darkening the hotel in one file left the lobby exit tweening back to a
-	"dark" that no longer existed. Both now read from here.
+	tweens the local player between them as they walk from space to space. They
+	used to hold private copies of the same eight numbers, so darkening the hotel
+	in one file left the lobby exit tweening back to a "dark" that no longer
+	existed. Both now read from here.
 
 	Each profile is split the way TweenService wants it — one table of Lighting
-	properties, one of ColorCorrectionEffect properties — so callers can hand
-	either straight to `TweenService:Create` without unpacking.
+	properties, one of ColorCorrectionEffect properties, one of Atmosphere
+	properties — so callers can hand any of them straight to
+	`TweenService:Create` without unpacking.
+
+	EVERY PROFILE MUST DEFINE EVERY KEY, and HorrorGradeProfilesSpec fails the
+	build if one does not. A profile that leaves a property out does not restore
+	it, it inherits whatever the profile before it set: the moment `Calm` lifted
+	Brightness and the fog, a `Dark` that did not restate them would have tweened
+	back to a "dark" that stayed lit — the same bug this file was written to end,
+	one property deeper.
 ]]
 
 local Profiles = {}
@@ -18,6 +26,7 @@ local Profiles = {}
 export type Profile = {
 	lighting: { [string]: any },
 	grade: { [string]: any },
+	atmosphere: { [string]: any },
 }
 
 --[[
@@ -50,12 +59,29 @@ Profiles.Dark = {
 		ExposureCompensation = -0.45,
 		FogStart = 14,
 		FogEnd = 110,
+		-- The four below are the night itself rather than the room: the moon and
+		-- nothing else, and an environment map dark enough that no surface is lit
+		-- by the sky. Restated in every profile because `Calm` lifts all of them.
+		Brightness = 1,
+		EnvironmentDiffuseScale = 0.08,
+		EnvironmentSpecularScale = 0.09,
+		ColorShift_Top = Color3.fromRGB(3, 6, 12),
 	},
 	grade = {
 		Brightness = -0.04,
 		Contrast = 0.22,
 		Saturation = -0.3,
 		TintColor = Color3.fromRGB(184, 198, 220),
+	},
+	-- The corridor haze. Cold, thick, and the reason a long hall disappears
+	-- rather than staying evenly readable to its far end.
+	atmosphere = {
+		Density = 0.28,
+		Offset = 0.08,
+		Color = Color3.fromRGB(70, 79, 98),
+		Decay = Color3.fromRGB(10, 13, 22),
+		Glare = 0,
+		Haze = 1.9,
 	},
 } :: Profile
 
@@ -78,12 +104,27 @@ Profiles.Lobby = {
 		ExposureCompensation = 0.8,
 		FogStart = 26,
 		FogEnd = 185,
+		-- Restated here so leaving Calm restores the night; see the header.
+		Brightness = 1,
+		EnvironmentDiffuseScale = 0.08,
+		EnvironmentSpecularScale = 0.09,
+		ColorShift_Top = Color3.fromRGB(3, 6, 12),
 	},
 	grade = {
 		Brightness = 0.05,
 		Contrast = 0.06,
 		Saturation = -0.14,
 		TintColor = Color3.fromRGB(226, 214, 196),
+	},
+	-- The corridor haze. Cold, thick, and the reason a long hall disappears
+	-- rather than staying evenly readable to its far end.
+	atmosphere = {
+		Density = 0.28,
+		Offset = 0.08,
+		Color = Color3.fromRGB(70, 79, 98),
+		Decay = Color3.fromRGB(10, 13, 22),
+		Glare = 0,
+		Haze = 1.9,
 	},
 } :: Profile
 
@@ -110,12 +151,81 @@ Profiles.Vault = {
 		ExposureCompensation = 0.35,
 		FogStart = 40,
 		FogEnd = 240,
+		-- Restated here so leaving Calm restores the night; see the header.
+		Brightness = 1,
+		EnvironmentDiffuseScale = 0.08,
+		EnvironmentSpecularScale = 0.09,
+		ColorShift_Top = Color3.fromRGB(3, 6, 12),
 	},
 	grade = {
 		Brightness = 0.02,
 		Contrast = 0.14,
 		Saturation = -0.42,
 		TintColor = Color3.fromRGB(206, 216, 230),
+	},
+	-- The corridor haze. Cold, thick, and the reason a long hall disappears
+	-- rather than staying evenly readable to its far end.
+	atmosphere = {
+		Density = 0.28,
+		Offset = 0.08,
+		Color = Color3.fromRGB(70, 79, 98),
+		Decay = Color3.fromRGB(10, 13, 22),
+		Glare = 0,
+		Haze = 1.9,
+	},
+} :: Profile
+
+--[[
+	The hotel before it is a horror game, and the only profile the player is
+	meant to be able to read the place in.
+
+	It runs for the whole of the first stay — Noel's desk, the lift, the walk
+	down the guest corridor, the sealed room — and then never again. That is the
+	point of it: the intro asks a brand-new player to find a receptionist, punch
+	a code into a keypad and read an arrow off the floor, and every one of those
+	is a chore in a corridor lit at ambient (7,8,12). Worse, it spends the scare.
+	A hotel that was frightening from the loading screen has nowhere to go when
+	the notice goes up; one that was ordinary for two minutes first does.
+
+	So this is not "the lobby, everywhere". The lobby profile is warm, amber and
+	still visibly night — relief inside a horror game. This is the horror game
+	switched off: neutral colour, no crushed blacks, the fog pushed past any
+	distance the building spans, and enough ambient that a room is lit whether or
+	not a fixture points at it. The gap between it and Dark is meant to be the
+	largest in the file, because the player crosses it once, in one cut, and that
+	cut is the moment the game starts.
+]]
+Profiles.Calm = {
+	lighting = {
+		-- Ambient does the work. Raising Brightness instead would light the place
+		-- through its windows, and the fiction is still a hotel at night.
+		Ambient = Color3.fromRGB(104, 101, 96),
+		OutdoorAmbient = Color3.fromRGB(112, 116, 126),
+		ExposureCompensation = 0.15,
+		-- Past the longest sightline in the building, so nothing fades out.
+		FogStart = 90,
+		FogEnd = 900,
+		Brightness = 1.4,
+		EnvironmentDiffuseScale = 0.4,
+		EnvironmentSpecularScale = 0.25,
+		ColorShift_Top = Color3.fromRGB(28, 32, 40),
+	},
+	-- Neutral on purpose: every other profile in this file pulls saturation down
+	-- and pushes contrast up, and the absence of that is most of what makes this
+	-- one read as an ordinary building rather than a graded one.
+	grade = {
+		Brightness = 0,
+		Contrast = 0.02,
+		Saturation = 0,
+		TintColor = Color3.fromRGB(252, 250, 246),
+	},
+	atmosphere = {
+		Density = 0.1,
+		Offset = 0,
+		Color = Color3.fromRGB(190, 198, 210),
+		Decay = Color3.fromRGB(96, 104, 118),
+		Glare = 0,
+		Haze = 0.35,
 	},
 } :: Profile
 

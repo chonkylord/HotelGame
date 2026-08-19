@@ -245,11 +245,61 @@ function HorrorZones.isInGuestRoom(position: Vector3): boolean
 	return false
 end
 
--- Room 1 is the lit onboarding room. Unlike the other guest rooms, its floor
--- is not a Floor_R* part, so identify the room from its door: the room begins
--- on the door's forward side and fills the east bay behind it. Keeping this
--- oriented to the door means the exception follows if that doorway is moved.
-function HorrorZones.isInRoomOne(position: Vector3): boolean
+--[[
+	Room 1, the onboarding room, which is a volume rather than a footprint.
+
+	Unlike the other guest rooms its floor is not a `Floor_R*` part, so there is
+	nothing to stand on and test for. It is also the one room the game asks a
+	question about that has to be exactly right: IntroSealService slams the door
+	and starts the whole opening beat the instant a player is judged to be
+	inside it, so a box that is roughly the room is not good enough here — too
+	small and the beat never fires, too large and it fires in the corridor with
+	the door open.
+
+	So the room is a part in the place, `Room1Zone`, and this reads its box the
+	same way the vault reads its chamber's: authored where it can be seen,
+	dragged and resized in Studio, and never restated as coordinates in a file
+	that would go stale the first time somebody moved a wall.
+]]
+local ROOM_ONE_ZONE = "Room1Zone"
+-- Same bargain as the vault and the guest-room floors: cheap to re-read, and
+-- caching "there is no zone" forever would be worse than the lookup.
+local ROOM_ONE_CACHE_TTL = 3
+
+local roomOneCache: BasePart? = nil
+local roomOneCacheAt = -math.huge
+local warnedAboutZone = false
+
+local function roomOneZone(): BasePart?
+	local now = os.clock()
+	if now - roomOneCacheAt < ROOM_ONE_CACHE_TTL then
+		return roomOneCache
+	end
+	roomOneCacheAt = now
+
+	local wing = Workspace:FindFirstChild("HotelWing")
+	local rooms = wing and wing:FindFirstChild("Rooms")
+	local found = rooms and rooms:FindFirstChild(ROOM_ONE_ZONE)
+	if not found then
+		found = Workspace:FindFirstChild(ROOM_ONE_ZONE, true)
+	end
+	roomOneCache = if found and found:IsA("BasePart") then found else nil
+	return roomOneCache
+end
+
+--[[
+	The approximation, used only when the zone part is missing.
+
+	It works the way this function used to work in full: the room begins on the
+	door's forward side and fills the bay behind it. That is honest about the
+	direction and wrong about the extent — the bay is not centred on its own
+	doorway, so this claims some space north of the room and misses the south
+	half of it. Kept because a place whose Room1Zone has not replicated (or has
+	been deleted) should still light room 1 roughly right rather than treat it
+	as corridor; it is not good enough to seal a door on, which is why
+	IntroSealService asks for the zone itself.
+]]
+local function inRoomOneByDoor(position: Vector3): boolean
 	local wing = Workspace:FindFirstChild("HotelWing")
 	local doors = wing and wing:FindFirstChild("Doors")
 	local door = doors and doors:FindFirstChild("Room1Door")
@@ -266,6 +316,29 @@ function HorrorZones.isInRoomOne(position: Vector3): boolean
 		and sideways <= 12.5
 		and position.Y >= doorCFrame.Position.Y - 6
 		and position.Y <= doorCFrame.Position.Y + 11
+end
+
+-- True when the zone part exists, so callers that must not act on the
+-- approximation above can say so rather than guessing.
+function HorrorZones.roomOneZoneExists(): boolean
+	return roomOneZone() ~= nil
+end
+
+function HorrorZones.isInRoomOne(position: Vector3): boolean
+	local zone = roomOneZone()
+	if not zone then
+		if not warnedAboutZone then
+			warnedAboutZone = true
+			warn(`[HorrorZones] no {ROOM_ONE_ZONE} part found; room 1 falls back to its door's bay`)
+		end
+		return inRoomOneByDoor(position)
+	end
+
+	-- Tested in the part's own space, so a zone turned to follow a re-angled
+	-- room stays tight to the room instead of growing the square it sits in.
+	local offset = zone.CFrame:PointToObjectSpace(position)
+	local half = zone.Size / 2
+	return math.abs(offset.X) <= half.X and math.abs(offset.Y) <= half.Y and math.abs(offset.Z) <= half.Z
 end
 
 -- True once the room geometry this module classifies against has replicated.

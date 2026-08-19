@@ -8,8 +8,11 @@
 	dimming and flicker live in LightFlicker, the lobby's local reprieve in
 	HorrorVisibilityZones, and the torch's beam in the flashlight tool.
 
-	The ambient/exposure/fog half of the grade comes from HorrorGradeProfiles so
-	that the lobby script tweens against the same numbers this one applies.
+	Every property either script tweens comes from HorrorGradeProfiles, so this
+	one and HorrorVisibilityZones apply the same numbers by construction. What is
+	left written out below is the part no profile ever moves: the shadow settings,
+	the bloom, the focus falloff, and the two effects the place shipped with that
+	have to be switched off.
 ]]
 
 local Lighting = game:GetService("Lighting")
@@ -20,17 +23,11 @@ local Profiles = require(ReplicatedStorage:WaitForChild("HorrorGradeProfiles"))
 -- Night -----------------------------------------------------------------------
 
 Lighting.ClockTime = 12
--- The moon, and nothing else. Every window in the place is a faint blue smear
--- rather than a light source.
-Lighting.Brightness = 1
-Lighting.ColorShift_Top = Color3.fromRGB(3, 6, 12)
+-- The moon, and nothing else — the brightness, the sky tint and the image-based
+-- fill that go with that all live in Profiles.Dark.lighting now, applied below.
+-- This one stays because no profile lifts it: there is nothing under the
+-- horizon to tint whatever the grade is doing above it.
 Lighting.ColorShift_Bottom = Color3.fromRGB(0, 0, 0)
--- Image-based fill is the quiet way a dark scene becomes a grey one: it lights
--- surfaces no fixture reaches. Kept well down, but not off — at 0.03 the
--- unlit half of a room had no shape at all, only an edge where the fixture's
--- reach stopped.
-Lighting.EnvironmentDiffuseScale = 0.08
-Lighting.EnvironmentSpecularScale = 0.09
 Lighting.GlobalShadows = true
 -- A small penumbra keeps contact shadows legible without turning furniture
 -- silhouettes into razor-edged cut-outs.
@@ -82,14 +79,18 @@ bloom.Size = 18
 bloom.Threshold = 1.55
 
 -- Reuse the place's existing atmosphere instead of stacking two haze volumes.
+--
+-- Its values come from the profile rather than being written out here, for the
+-- same reason the ambient half does: HorrorVisibilityZones tweens this exact
+-- instance between profiles as the player moves, so a haze authored here and a
+-- haze authored there would disagree the moment either was retuned — and the
+-- symptom would be the hotel coming back from the lobby foggier or clearer than
+-- it started.
 local foundAtmosphere = Lighting:FindFirstChildOfClass("Atmosphere")
 local atmosphere = if foundAtmosphere then foundAtmosphere else effect("HorrorAtmosphere", "Atmosphere") :: Atmosphere
-atmosphere.Density = 0.28
-atmosphere.Offset = 0.08
-atmosphere.Color = Color3.fromRGB(70, 79, 98)
-atmosphere.Decay = Color3.fromRGB(10, 13, 22)
-atmosphere.Glare = 0
-atmosphere.Haze = 1.9
+for property, value in Profiles.Dark.atmosphere do
+	(atmosphere :: any)[property] = value
+end
 
 -- Barely-there far focus falloff gives distant halls depth while leaving the
 -- flashlight's useful range and everything near the player fully sharp.

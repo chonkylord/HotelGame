@@ -7,6 +7,7 @@
 	lets both occupy their registered DisplayOrders without hiding other systems.
 ]]
 
+local GuiService = game:GetService("GuiService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
@@ -403,7 +404,6 @@ toastShadow.AnchorPoint = Vector2.new(0.5, 0)
 toastShadow.BackgroundColor3 = SHADOW
 toastShadow.BackgroundTransparency = 0.42
 toastShadow.BorderSizePixel = 0
-toastShadow.Position = UDim2.new(0.5, 4, 0, 29)
 toastShadow.Size = UDim2.fromOffset(520, 58)
 toastShadow.Visible = false
 corner(toastShadow, 5)
@@ -418,7 +418,6 @@ toast.BorderSizePixel = 0
 -- at a glance mid-chase, so it gets a touch more size than the card body and
 -- nothing else competing with the letterforms.
 toast.Font = Enum.Font.Garamond
-toast.Position = UDim2.new(0.5, 0, 0, 24)
 toast.Size = UDim2.fromOffset(520, 58)
 toast.Text = ""
 toast.TextColor3 = INK
@@ -430,6 +429,22 @@ corner(toast, 5)
 stroke(toast, BLOOD, 1.5, 0.25)
 agedPaper(toast)
 toast.Parent = modalGui
+
+-- The round plaque owns the row above this one. Its ScreenGui lets Roblox apply
+-- the topbar inset; this one cannot, because it also carries the full-screen
+-- modal overlay, so the inset is added back by hand here. A constant offset
+-- would sit correctly on a desktop client and underneath the plaque in a Studio
+-- viewport or on a notched phone, where the inset is larger.
+local BANNER_ROW = 90
+
+local function layoutBanner()
+	local top = GuiService:GetGuiInset().Y + BANNER_ROW
+	toast.Position = UDim2.new(0.5, 0, 0, top)
+	toastShadow.Position = UDim2.new(0.5, 4, 0, top + 5)
+end
+
+layoutBanner()
+GuiService:GetPropertyChangedSignal("TopbarInset"):Connect(layoutBanner)
 
 -- Behaviour ------------------------------------------------------------------
 

@@ -23,6 +23,7 @@ type RescueControllerApi = {
 
 local ClueConfig = require(ReplicatedStorage:WaitForChild("ClueConfig"))
 local JoelConfig = require(ReplicatedStorage:WaitForChild("JoelConfig"))
+local OnboardingConfig = require(ReplicatedStorage:WaitForChild("OnboardingConfig"))
 local RescueController = require(ServerStorage:WaitForChild("RescueController")) :: RescueControllerApi
 
 local ADMIN_INVINCIBLE_ATTRIBUTE = "AdminInvincible"
@@ -41,6 +42,11 @@ end
 local joelNoise = ensure(ServerStorage, ClueConfig.JoelNoiseEvent, "BindableEvent") :: BindableEvent
 local joelDefeat = ensure(ServerStorage, ClueConfig.JoelDefeatEvent, "BindableEvent") :: BindableEvent
 local joelRevive = ensure(ServerStorage, ClueConfig.JoelReviveEvent, "BindableEvent") :: BindableEvent
+
+-- What the plaque at the top of every screen reads. It is created before the rig
+-- is even looked for, so a place with no Joel in it still resolves the client's
+-- WaitForChild and simply leaves the plaque hidden, rather than hanging it.
+local joelState = ensure(Workspace, JoelConfig.StateFolder, "Folder") :: Folder
 
 -- Rig ------------------------------------------------------------------------
 
@@ -82,7 +88,7 @@ end)
 
 -- Shared types and state ------------------------------------------------------
 
-type HunterState = "Dormant" | "Prowl" | "Investigate" | "Search" | "Chase" | "Dragging" | "Downed"
+type HunterState = "Dormant" | "Prowl" | "Investigate" | "Search" | "Chase" | "Dragging" | "Downed" | "Resting"
 
 type CharacterBinding = {
 	player: Player,
@@ -126,6 +132,9 @@ local downedUntil = -math.huge
 local downedRevision = 0
 local activeDrag: ActiveDrag? = nil
 local catchInProgress = false
+local downedEndsAt = 0
+local publishedPhase = ""
+local publishedEndsAt = 0
 
 local waypoints: { PathWaypoint } = {}
 local waypointIndex = 1
@@ -157,7 +166,7 @@ local function publishState()
 	joel:SetAttribute("HunterState", state)
 	joel:SetAttribute(
 		"IsHunting",
-		targetBinding ~= nil and state ~= "Dormant" and state ~= "Prowl" and state ~= "Dragging"
+		targetBinding ~= nil and state ~= "Dormant" and state ~= "Prowl" and state ~= "Dragging" and state ~= "Resting"
 	)
 	joel:SetAttribute("TargetUserId", if targetBinding then targetBinding.player.UserId else 0)
 	joel:SetAttribute("CurrentSpeed", currentSpeed)
@@ -169,6 +178,23 @@ local function setState(nextState: HunterState)
 		joel:SetAttribute("HunterState", state)
 	end
 	publishState()
+end
+
+--[[
+	Publishing a phase and the server time it ends at — rather than a number that
+	ticks — is what keeps the plaque exact for nothing. Clients subtract from
+	GetServerTimeNow() themselves, so these attributes replicate twice a cycle
+	instead of sixty times a second, and a player who joins eleven seconds into a
+	window reads the same nineteen as everyone already inside it.
+]]
+local function publishCycle(phase: string, endsAt: number)
+	if publishedPhase == phase and math.abs(publishedEndsAt - endsAt) < 0.05 then
+		return
+	end
+	publishedPhase = phase
+	publishedEndsAt = endsAt
+	joelState:SetAttribute(JoelConfig.CyclePhaseAttribute, phase)
+	joelState:SetAttribute(JoelConfig.CycleEndsAtAttribute, endsAt)
 end
 
 local function clearPath()
@@ -255,6 +281,7 @@ local function reviveJoel()
 
 	downedRevision += 1
 	downedUntil = -math.huge
+	downedEndsAt = 0
 	joel:SetAttribute("DownedUntil", 0)
 	currentSpeed = 0
 	joelHumanoid.WalkSpeed = JoelConfig.ProwlSpeed
@@ -267,7 +294,8 @@ local function downJoel()
 	downedRevision += 1
 	local revision = downedRevision
 	downedUntil = os.clock() + JoelConfig.DownedSeconds
-	joel:SetAttribute("DownedUntil", Workspace:GetServerTimeNow() + JoelConfig.DownedSeconds)
+	downedEndsAt = Workspace:GetServerTimeNow() + JoelConfig.DownedSeconds
+	joel:SetAttribute("DownedUntil", downedEndsAt)
 	forgetTarget()
 	currentSpeed = 0
 	joelHumanoid.WalkSpeed = 0
@@ -288,7 +316,7 @@ joelNoise.Event:Connect(function(position: any, weight: any)
 	if typeof(position) ~= "Vector3" or typeof(weight) ~= "number" then
 		return
 	end
-	if state == "Downed" or state == "Dragging" or weight <= 0 then
+	if state == "Downed" or state == "Dragging" or state == "Resting" or weight <= 0 then
 		return
 	end
 	if (position - joelRoot.Position).Magnitude > weight * JoelConfig.NoiseInvestigateWeight then
@@ -333,6 +361,21 @@ end
 ]]
 local function bindingIsHuntable(binding: CharacterBinding): boolean
 	return bindingIsCurrent(binding)
+		--[[
+			Nobody is hunted during their first stay.
+
+			The intro walks a new player through a lit hotel to a room that seals
+			behind them and puts up a notice saying he is prowling. Joel taking
+			someone in the lift on the way there does not just spoil that, it
+			makes the notice a lie about something that already happened.
+
+			Written as "is in the intro" rather than "is not finished", so a
+			player the server has not classified yet is huntable. See
+			OnboardingConfig.isIntroStage: the other reading would make an
+			unclassified player permanently invisible to him, which is the far
+			worse failure and the one that is hard to notice.
+		]]
+		and not OnboardingConfig.isIntroStage(binding.player:GetAttribute(OnboardingConfig.ATTRIBUTE))
 		and JoelConfig.canTargetRescueState(binding.player:GetAttribute(JoelConfig.RescueStateAttribute))
 		and JoelConfig.canTargetHidingState(binding.player:GetAttribute(JoelConfig.HidingAttribute))
 end
@@ -1014,8 +1057,7 @@ local function chooseProwlGoal(now: number): Vector3
 		for _ = 1, PROWL_GOAL_ATTEMPTS do
 			local angle = math.random() * math.pi * 2
 			local radius = 24 + math.random() * 42
-			local candidate = joelRoot.Position
-				+ Vector3.new(math.cos(angle) * radius, 0, math.sin(angle) * radius)
+			local candidate = joelRoot.Position + Vector3.new(math.cos(angle) * radius, 0, math.sin(angle) * radius)
 			if prowlGoalIsSane(candidate) then
 				picked = candidate
 				break
@@ -1057,7 +1099,7 @@ local function chooseSearchGoal(now: number): Vector3?
 end
 
 local function desiredSpeed(clock: number): number
-	if state == "Dormant" or state == "Downed" then
+	if state == "Dormant" or state == "Downed" or state == "Resting" then
 		return 0
 	elseif state == "Dragging" then
 		return JoelConfig.DragSpeed
@@ -1174,8 +1216,12 @@ end
 -- Main loop ------------------------------------------------------------------
 
 local started = os.clock()
+-- The first hunt window opens the instant the entry grace closes, so nobody
+-- spawns into a plaque already counting down a window they never saw start.
+local cycleEpoch = Workspace:GetServerTimeNow() + JoelConfig.StartGraceSeconds
 local nextPerception = 0
 publishState()
+publishCycle(JoelConfig.PhaseRest, cycleEpoch)
 
 RunService.Heartbeat:Connect(function(delta: number)
 	if not joelRoot.Parent or joelHumanoid.Health <= 0 then
@@ -1190,18 +1236,64 @@ RunService.Heartbeat:Connect(function(delta: number)
 		if now >= downedUntil then
 			reviveJoel()
 		else
+			publishCycle(JoelConfig.PhaseDowned, downedEndsAt)
 			publishState()
 			return
 		end
 	end
 	if now - started < JoelConfig.StartGraceSeconds then
 		endActiveDrag(false, "start grace became active")
+		publishCycle(JoelConfig.PhaseRest, cycleEpoch)
 		setState("Dormant")
 		currentSpeed = 0
 		joelHumanoid.WalkSpeed = 0
 		joelHumanoid:MoveTo(joelRoot.Position)
 		publishState()
 		return
+	end
+
+	-- Both numbers come off the same GetServerTimeNow() reading, so the published
+	-- deadline is the boundary itself and holds still frame to frame instead of
+	-- drifting by a heartbeat's worth of clock each time.
+	local serverNow = Workspace:GetServerTimeNow()
+	local phase, remaining = JoelConfig.cycleAt(serverNow - cycleEpoch)
+	publishCycle(phase, serverNow + remaining)
+
+	--[[
+		The stand-down is a real stop, not a slower prowl. Joel drops whoever he
+		was following, plants where he is, and stops sensing entirely — hearing
+		included, which is the part that matters, because his ears reach through
+		walls and a stand-down that only blinded him would still have him waiting
+		outside the door you ran through. A chase that runs into the window is
+		genuinely broken rather than resumed from the same corridor fifteen
+		seconds later, which is the whole reason the window is worth spending.
+
+		A drag already under way is the one thing it does not interrupt. Cutting
+		one short would leave the victim mid-carry between two of the rescue
+		system's states for no reason a player could read; he finishes the
+		delivery and stands down for whatever is left of the window.
+
+		Speed is eased to a halt rather than zeroed. MoveTo already stops him
+		dead, so this is purely for CurrentSpeed, which is what JoelHorrorRun
+		blends its stride against — snapping it would jam the run animation
+		mid-stride instead of letting it settle.
+	]]
+	if phase == JoelConfig.PhaseRest then
+		if state ~= "Dragging" then
+			forgetTarget()
+			currentSpeed = JoelConfig.approachSpeed(currentSpeed, 0, delta)
+			joelHumanoid.WalkSpeed = currentSpeed
+			joelHumanoid:MoveTo(joelRoot.Position)
+			stuckAnchor = joelRoot.Position
+			stuckSince = now
+			setState("Resting")
+			return
+		end
+	elseif state == "Resting" then
+		-- The window just reopened. Perception only runs every tenth of a second,
+		-- and leaving him Resting until it next fires would shave that off the
+		-- front of the hunt.
+		setState("Prowl")
 	end
 
 	local dragging = prepareActiveDrag(now)

@@ -288,6 +288,79 @@ return function()
 		end)
 	end)
 
+	describe("the hunt and rest cycle", function()
+		local length = Config.cycleLength()
+
+		it("is the two windows and nothing else", function()
+			expect(length).to.equal(Config.HuntWindowSeconds + Config.RestWindowSeconds)
+			expect(Config.HuntWindowSeconds > 0).to.equal(true)
+			expect(Config.RestWindowSeconds > 0).to.equal(true)
+		end)
+
+		it("opens on a full hunt window", function()
+			local phase, remaining = Config.cycleAt(0)
+			expect(phase).to.equal(Config.PhaseHunt)
+			expect(remaining).to.equal(Config.HuntWindowSeconds)
+		end)
+
+		it("hunts right up to the boundary and rests on it", function()
+			local lastPhase = Config.cycleAt(Config.HuntWindowSeconds - 0.01)
+			expect(lastPhase).to.equal(Config.PhaseHunt)
+
+			local phase, remaining = Config.cycleAt(Config.HuntWindowSeconds)
+			expect(phase).to.equal(Config.PhaseRest)
+			expect(remaining).to.equal(Config.RestWindowSeconds)
+		end)
+
+		it("repeats without drifting", function()
+			for cycle = 0, 40 do
+				local base = cycle * length
+				local phase, remaining = Config.cycleAt(base + 3)
+				expect(phase).to.equal(Config.PhaseHunt)
+				expect(remaining).to.equal(Config.HuntWindowSeconds - 3)
+
+				local restPhase, restRemaining = Config.cycleAt(base + Config.HuntWindowSeconds + 3)
+				expect(restPhase).to.equal(Config.PhaseRest)
+				expect(restRemaining).to.equal(Config.RestWindowSeconds - 3)
+			end
+		end)
+
+		--[[
+			The plaque renders whatever comes back here, so a remaining that goes
+			negative or past its own window is a visible lie on every screen in
+			the server rather than a quiet arithmetic slip.
+		]]
+		it("never reports a countdown outside the window it names", function()
+			for step = -200, 400 do
+				local elapsed = step * 0.37
+				local phase, remaining = Config.cycleAt(elapsed)
+				local window = if phase == Config.PhaseHunt then Config.HuntWindowSeconds else Config.RestWindowSeconds
+				expect(remaining > 0).to.equal(true)
+				expect(remaining <= window).to.equal(true)
+			end
+		end)
+
+		--[[
+			The cross-module one. A stand-down shorter than Joel's memory would not
+			break a chase, it would postpone one: he would forget you at second 12,
+			be handed his eyes back at second 15, and still be standing outside the
+			door you ran through. Fifteen against twelve is the margin that makes
+			the window worth spending, and LoseInterestSeconds is tuned by whoever
+			is thinking about pursuit, not about the round's pulse.
+		]]
+		it("stands down for longer than Joel remembers you", function()
+			expect(Config.RestWindowSeconds > Config.LoseInterestSeconds).to.equal(true)
+		end)
+
+		it("leaves more of the round dangerous than safe", function()
+			expect(Config.HuntWindowSeconds > Config.RestWindowSeconds).to.equal(true)
+		end)
+
+		it("gives the entry grace a window to hide behind", function()
+			expect(Config.StartGraceSeconds < Config.RestWindowSeconds).to.equal(true)
+		end)
+	end)
+
 	describe("the Sunstone interruption", function()
 		it("matches the authored escape window", function()
 			expect(Config.DownedSeconds).to.equal(ClueConfig.EscapeWindowSeconds)

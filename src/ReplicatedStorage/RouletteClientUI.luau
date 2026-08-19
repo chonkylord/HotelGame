@@ -4,6 +4,7 @@
 -- and keeps the four-minute cooldown off every other player's screen.
 
 local AssetService = game:GetService("AssetService")
+local GuiService = game:GetService("GuiService")
 local CollectionService = game:GetService("CollectionService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -72,12 +73,33 @@ cooldown.AnchorPoint = Vector2.new(1, 0)
 cooldown.BackgroundColor3 = PAPER
 cooldown.BackgroundTransparency = 0.02
 cooldown.BorderSizePixel = 0
-cooldown.Position = UDim2.new(1, -24, 0, 24)
 cooldown.Size = UDim2.fromOffset(238, 58)
 cooldown.Visible = false
 corner(cooldown, 2)
 stroke(cooldown, INK, 2, 0.05)
 cooldown.Parent = screen
+
+--[[
+	One row below the round plaque, which is centred and always on screen.
+
+	The two used to share the top row, which worked only while the plaque was not
+	there and the viewport was wide: a centred 300px plaque and this card reach
+	each other below about 820px of width, and no amount of horizontal margin
+	fixes that on a phone. Separating them vertically instead makes the clearance
+	independent of viewport width entirely.
+
+	The row is the one this card already shared with the clue banner, so nothing
+	changes between those two. The inset is added by hand because this ScreenGui
+	ignores it — the roulette panel underneath needs the whole screen.
+]]
+local COOLDOWN_ROW = 90
+
+local function layoutCooldown()
+	cooldown.Position = UDim2.new(1, -24, 0, GuiService:GetGuiInset().Y + COOLDOWN_ROW)
+end
+
+layoutCooldown()
+GuiService:GetPropertyChangedSignal("TopbarInset"):Connect(layoutCooldown)
 
 local cooldownRule = Instance.new("Frame")
 cooldownRule.BackgroundColor3 = BLOOD

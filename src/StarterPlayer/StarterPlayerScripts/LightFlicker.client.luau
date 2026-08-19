@@ -17,11 +17,15 @@
 	fixture does not stay glowing over an unlit room.
 ]]
 
+local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
 
 local HorrorZones = require(ReplicatedStorage:WaitForChild("HorrorZones"))
+local OnboardingConfig = require(ReplicatedStorage:WaitForChild("OnboardingConfig"))
+
+local player = Players.LocalPlayer
 
 -- Fixture profiles ------------------------------------------------------------
 
@@ -170,6 +174,38 @@ local ROOM_ONE: Profile = {
 	dropoutChance = 0,
 	surge = 1,
 	shadowChance = 0,
+}
+
+--[[
+	Every fixture in the building, for as long as the first stay lasts.
+
+	The grade half of the intro lives in HorrorGradeProfiles.Calm, and on its own
+	it is not enough: ambient decides how much of a room is legible with no
+	fixture pointing at it, but the fixtures are still the thing you actually
+	look at, and a corridor whose panels keep dropping out is not "normal
+	lighting" however high the ambient goes. A tube dying over Noel's desk while
+	a new player reads their room code is the single most horror-coded thing in
+	the place, and it fires on a 2.5-to-8-second cycle.
+
+	So this profile is the fixtures switched on and left alone: what the place
+	authored, at the reach it authored, with the fit chance at zero. The ceiling
+	stays — it is the guard against the switchable-light kit's Brightness of 20,
+	which is absurd under any grade — and so does a range cap generous enough
+	that no hotel fixture meets it, because a shadowless panel reaching 26 studs
+	still lights the floor below through the ceiling.
+]]
+local CALM: Profile = {
+	brightness = 1,
+	ceiling = 3,
+	range = 34,
+	quietMin = 60,
+	quietMax = 60,
+	burstMin = 0,
+	burstMax = 0,
+	burstChance = 0,
+	dropoutChance = 0,
+	surge = 1,
+	shadowChance = 0.2,
 }
 
 local STROBE_STEP = 0.05 -- how fast the strobe stutters
@@ -332,13 +368,22 @@ local function isLobbyFixture(light: Light): boolean
 	end)
 end
 
+local function introActive(): boolean
+	return OnboardingConfig.isIntroStage(player:GetAttribute(OnboardingConfig.ATTRIBUTE))
+end
+
 --[[
-	Order matters. The lobby wins outright — it is the one lit room and nothing
-	else should be able to dim it. The amenities floor is checked before the
-	guest-room footprint test because its lounge sits directly above part of the
-	wing and would otherwise inherit the darkest profile in the hotel.
+	Order matters. The intro wins over everything, including the lobby: it is not
+	a room, it is the whole building told to behave for two minutes. After that
+	the lobby wins outright — it is the one lit room and nothing else should be
+	able to dim it. The amenities floor is checked before the guest-room
+	footprint test because its lounge sits directly above part of the wing and
+	would otherwise inherit the darkest profile in the hotel.
 ]]
 local function profileFor(light: Light, anchor: BasePart): Profile
+	if introActive() then
+		return CALM
+	end
 	if isLobbyFixture(light) then
 		return LOBBY
 	end
@@ -412,13 +457,7 @@ local function track(instance: Instance)
 	end
 	-- The only three light classes that carry a Range, which every fixture here
 	-- is and which `ranged` above relies on.
-	if
-		not (
-			instance:IsA("PointLight")
-			or instance:IsA("SpotLight")
-			or instance:IsA("SurfaceLight")
-		)
-	then
+	if not (instance:IsA("PointLight") or instance:IsA("SpotLight") or instance:IsA("SurfaceLight")) then
 		return
 	end
 	local parent = instance.Parent
@@ -479,15 +518,17 @@ Workspace.DescendantRemoving:Connect(untrack)
 	the geometry is there costs a single pass and cannot compound, because
 	applyProfile always works from the authored values.
 ]]
-task.spawn(function()
-	local deadline = os.clock() + 20
-	while not HorrorZones.roomsReady() and os.clock() < deadline do
-		task.wait(0.5)
-	end
-	if not HorrorZones.roomsReady() then
-		warn("[LightFlicker] guest-room geometry never replicated; rooms keep the corridor profile")
-		return
-	end
+--[[
+	Re-decides every fixture's profile and puts the new one on.
+
+	Safe to run at any point and any number of times, because applyProfile always
+	works from the authored values rather than from whatever the light is
+	currently showing, so nothing it does compounds. Clearing `slot` is what
+	makes the change take immediately: the drive loop recomputes this light's
+	flicker window on the next Heartbeat and, for a profile that never bursts,
+	releases it back to steady in the same pass.
+]]
+local function reclassify(): number
 	local changed = 0
 	for _, state in states do
 		local wanted = profileFor(state.light, state.anchor)
@@ -498,7 +539,26 @@ task.spawn(function()
 			changed += 1
 		end
 	end
-	print(string.format("[LightFlicker] re-classified %d fixture(s) once room geometry arrived", changed))
+	return changed
+end
+
+task.spawn(function()
+	local deadline = os.clock() + 20
+	while not HorrorZones.roomsReady() and os.clock() < deadline do
+		task.wait(0.5)
+	end
+	if not HorrorZones.roomsReady() then
+		warn("[LightFlicker] guest-room geometry never replicated; rooms keep the corridor profile")
+		return
+	end
+	print(string.format("[LightFlicker] re-classified %d fixture(s) once room geometry arrived", reclassify()))
+end)
+
+-- The first stay ending is the whole hotel changing profile at once — every
+-- fixture drops off CALM and back onto the room it hangs in, which is the
+-- lights failing for the first time.
+player:GetAttributeChangedSignal(OnboardingConfig.ATTRIBUTE):Connect(function()
+	print(string.format("[LightFlicker] re-classified %d fixture(s) for the onboarding stage", reclassify()))
 end)
 
 -- Bulbs are shared: a fixture holding three lights only relights once all three

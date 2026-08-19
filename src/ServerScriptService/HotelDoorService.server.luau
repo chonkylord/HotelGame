@@ -42,6 +42,15 @@
 -- AUTO_CLOSE_AFTER seconds after a grant. Whoever walked in is shut in until
 -- somebody outside punches the code again. That is intended for most of the
 -- rooms here; give a door ExitPrompt = true if it should not behave that way.
+--
+-- Sealing sits on top of all of that. Set the Sealed attribute on a door model
+-- and the leaf comes to in a sixth of a second, slams, and then refuses
+-- everything: the keypad, the release plate, and a Muscle player's shoulder.
+-- Clear the attribute and the door is a door again. It is deliberately a state
+-- nothing in this file ever sets itself — IntroSealService owns the one moment
+-- the game uses it — so the interface stays "somebody else decided this door is
+-- shut now", and any later scripted beat that needs a door held closed gets the
+-- slam and the refusals for free.
 
 local CollectionService = game:GetService("CollectionService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -62,6 +71,28 @@ local OPEN_ANGLE = 90 -- swings away from the corridor, into the room
 local AJAR_ANGLE = 11
 local SWING = TweenInfo.new(0.7, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 local AUTO_CLOSE_AFTER = 8
+
+--[[
+	Sealing a door.
+
+	The swing is short and eased IN rather than out, which is the whole
+	difference between a door closing and a door being slammed: the leaf
+	accelerates into the frame and stops there instead of coasting to a halt.
+	Nothing overshoots — a real door hits its frame — so the impact is carried by
+	the sound rather than by a rebound that would have to clip through the wall
+	to be visible.
+
+	The sound is APM's, like Joel's chase theme and his approach drone, so the
+	three are mastered alike. It is positional and hung on the leaf itself, which
+	is what puts it behind the player who has just walked past it.
+]]
+local SEAL_ATTRIBUTE = OnboardingConfig.SEAL_ATTRIBUTE
+local SEAL_SWING = TweenInfo.new(0.16, Enum.EasingStyle.Quint, Enum.EasingDirection.In)
+local SEAL_SOUND_NAME = "SlamSound"
+local SEAL_SOUND_ID = "rbxassetid://1837829565" -- HIT-Door Slam 02, APM Music
+local SEAL_SOUND_VOLUME = 1.15
+local SEAL_SOUND_MIN_DISTANCE = 14
+local SEAL_SOUND_MAX_DISTANCE = 240
 
 -- The room-side release plate.
 --
@@ -112,6 +143,8 @@ local LED_DEAD = Color3.fromRGB(28, 8, 8) -- nothing lit behind it any more
 local TEXT_IDLE = Color3.fromRGB(120, 255, 160)
 local TEXT_BAD = Color3.fromRGB(255, 110, 100)
 local TEXT_ERROR = Color3.fromRGB(255, 78, 64)
+-- A sealed panel is not a broken one. It has power, it answers, and it says no.
+local TEXT_SEALED = Color3.fromRGB(255, 138, 74)
 -- The panel talking to somebody who is not supposed to be talking to it.
 local TEXT_HACK = Color3.fromRGB(120, 255, 235)
 local LED_HACK = Color3.fromRGB(80, 240, 220)
@@ -208,6 +241,10 @@ local function restLed(door: Door)
 	setLed(door, if door.state == STATE_NORMAL then LED_LOCKED else LED_DEAD)
 end
 
+local function isSealed(door: Door): boolean
+	return door.model:GetAttribute(SEAL_ATTRIBUTE) == true
+end
+
 local function setOpen(door: Door, open: boolean)
 	-- A jammed or broken door has no working mechanism left. Guarding here
 	-- rather than at each caller means nothing added later can open one by
@@ -215,6 +252,16 @@ local function setOpen(door: Door, open: boolean)
 	-- lock out of the equation, so the leaf is free to move even though the
 	-- keypad in front of it is still dead.
 	if door.state ~= STATE_NORMAL and not door.bypassed then
+		return
+	end
+	--[[
+		Sealed doors close and never open, which is why this tests `open` rather
+		than refusing outright. Guarding the single function every mechanism goes
+		through is what makes the seal hold against all of them at once: the
+		keypad's grant, the release plate, a Hacker's finished bypass, and the
+		auto-close that is still pending from before the door was sealed.
+	]]
+	if open and isSealed(door) then
 		return
 	end
 	if door.isOpen == open or door.busy then
@@ -506,7 +553,136 @@ local function finishHack(door: Door)
 	closeLater(door)
 end
 
-local function press(door: Door, key: string, player: Player)
+--[[
+	What a sealed panel does with a button press.
+
+	It answers — the display changes under the finger — and it gets nowhere. The
+	same reasoning as `refuse` below: a panel that did nothing at all reads as
+	the game having broken rather than as the door being held shut, and the
+	player keeps pressing buttons waiting for it to wake up. Unlike `refuse` this
+	one names the condition, because a player who has just been shut in is owed
+	the information that the door is not merely locked.
+]]
+local function refuseSealed(door: Door)
+	door.session += 1
+	local mySession = door.session
+	setDisplay(door, "SEALED", TEXT_SEALED)
+	door.input = ""
+	task.delay(1.1, function()
+		if door.session == mySession and isSealed(door) then
+			setDisplay(door, "SEALED", TEXT_SEALED)
+		end
+	end)
+end
+
+--[[
+	The release plate, which has to stop offering a way out while there is not
+	one.
+
+	Both halves matter and only one of them is cosmetic. atExit and the seal
+	check in setOpen are what actually refuse the player; this is what stops the
+	room lying to them in the meantime. A prompt still reading "Exit" over a
+	plate that has just been sealed, which does nothing when held, is worse than
+	no prompt at all — it reads as the game being broken rather than as the door
+	being held shut.
+
+	Whether the plate is live at all is recomputed from the prompt rather than
+	from a flag: setup destroys the prompt on any door whose release is dead, so
+	its presence is the same question asked of the thing that answers it.
+]]
+local function setExitOffered(door: Door, sealed: boolean)
+	local exit = door.model:FindFirstChild("ExitButton")
+	if not exit then
+		return
+	end
+
+	local prompt = exit:FindFirstChildOfClass("ProximityPrompt")
+	if prompt then
+		prompt.Enabled = not sealed
+	end
+
+	local label = exit:FindFirstChild("Text", true)
+	if not label or not label:IsA("TextLabel") then
+		return
+	end
+	if sealed then
+		label.Text = "SEALED"
+		label.TextColor3 = PLATE_DEAD
+		return
+	end
+	label.Text = if prompt then "EXIT" else "OUT OF SERVICE"
+	label.TextColor3 = if prompt then PLATE_LIVE else PLATE_DEAD
+end
+
+local function playSlam(door: Door)
+	local leaf = door.model:FindFirstChild("Leaf")
+	local core = leaf and leaf:FindFirstChild("Core")
+	if not core or not core:IsA("BasePart") then
+		return
+	end
+
+	local existing = core:FindFirstChild(SEAL_SOUND_NAME)
+	local slam: Sound
+	if existing and existing:IsA("Sound") then
+		slam = existing
+	else
+		slam = Instance.new("Sound")
+		slam.Name = SEAL_SOUND_NAME
+		slam.SoundId = SEAL_SOUND_ID
+		slam.Volume = SEAL_SOUND_VOLUME
+		-- Carries down the corridor without going flat at the doorway: whoever
+		-- is inside the room hears it hit, and so does anyone still outside.
+		slam.RollOffMode = Enum.RollOffMode.InverseTapered
+		slam.RollOffMinDistance = SEAL_SOUND_MIN_DISTANCE
+		slam.RollOffMaxDistance = SEAL_SOUND_MAX_DISTANCE
+		slam.Parent = core
+	end
+	slam:Play()
+end
+
+--[[
+	The leaf coming to, whatever it was doing.
+
+	Deliberately not routed through setOpen. That function is the polite one — it
+	refuses while `busy`, so a door still finishing its opening swing would
+	ignore the slam entirely, and its 0.7-second eased-out tween is a door
+	closing rather than a door being slammed. Writing the hinge here is also what
+	makes the seal safe to apply to a door standing wide open, which is exactly
+	the case it exists for: the player has just punched the code and walked in.
+
+	The pending auto-close is stepped over by bumping the session, and the guard
+	in setOpen means nothing that survives it can pull the leaf back open.
+]]
+local function slamShut(door: Door)
+	door.session += 1
+	door.isOpen = false
+	door.busy = true
+	TweenService:Create(door.hinge, SEAL_SWING, { CFrame = door.closedCF }):Play()
+	task.delay(SEAL_SWING.Time, function()
+		door.busy = false
+	end)
+
+	playSlam(door)
+	setLed(door, LED_LOCKED)
+	setDisplay(door, "SEALED", TEXT_SEALED)
+	setExitOffered(door, true)
+end
+
+-- Whatever held the door shut has let go. The leaf is already closed, so this
+-- is only the panel and the plate going back to what the door's own state says
+-- they should be.
+local function unseal(door: Door)
+	door.session += 1
+	restLed(door)
+	idle(door)
+	setExitOffered(door, false)
+end
+
+local function press(door: Door, key: string)
+	if isSealed(door) then
+		refuseSealed(door)
+		return
+	end
 	if key == "C" then
 		door.input = ""
 		setDisplay(door, "ENTER CODE", TEXT_IDLE)
@@ -519,12 +695,6 @@ local function press(door: Door, key: string, player: Player)
 		if door.input == expected then
 			door.input = ""
 			grant(door)
-			if
-				door.model.Name == OnboardingConfig.ROOM_DOOR_NAME
-				and player:GetAttribute(OnboardingConfig.ATTRIBUTE) == OnboardingConfig.ENTER_ROOM
-			then
-				player:SetAttribute(OnboardingConfig.ATTRIBUTE, OnboardingConfig.COMPLETE)
-			end
 		else
 			deny(door)
 		end
@@ -625,6 +795,18 @@ end
 
 local function smash(door: Door)
 	if door.state == STATE_SMASHED then
+		return
+	end
+	--[[
+		A sealed door does not give, even to a shoulder.
+
+		This is the one refusal in the file that overrules a class rather than a
+		mechanism, and it is worth being explicit about: the Ironhand relic turns
+		Muscle into a key for every intact door in the hotel, and the whole point
+		of a sealed door is that it is not a door for as long as it is sealed. A
+		scripted beat that a relic could walk out of is not a beat.
+	]]
+	if isSealed(door) then
 		return
 	end
 
@@ -777,7 +959,7 @@ local function setup(inst: Instance)
 			if detector and key ~= "" then
 				table.insert(
 					conns,
-					detector.MouseClick:Connect(function(player: Player)
+					detector.MouseClick:Connect(function()
 						-- A bypass in progress owns the panel. Without this,
 						-- anyone poking a button mid-hold bumps the session and
 						-- kills the trace out from under the player holding E.
@@ -787,7 +969,7 @@ local function setup(inst: Instance)
 						if door.state == STATE_BROKEN then
 							refuse(door)
 						else
-							press(door, key, player)
+							press(door, key)
 						end
 					end)
 				)
@@ -1034,6 +1216,25 @@ local function setup(inst: Instance)
 		end)
 	)
 
+	--[[
+		Sealing, unlike State, does not re-read the door.
+
+		It cannot: a teardown would drop the connections and re-pose the leaf
+		from scratch, and the seal exists precisely to interrupt a door that is
+		mid-swing with somebody standing in the room behind it. So this is a
+		change of behaviour on the same live door rather than a new one.
+	]]
+	table.insert(
+		conns,
+		inst:GetAttributeChangedSignal(SEAL_ATTRIBUTE):Connect(function()
+			if isSealed(door) then
+				slamShut(door)
+			else
+				unseal(door)
+			end
+		end)
+	)
+
 	connections[inst] = conns
 
 	if door.state == STATE_SMASHED then
@@ -1057,6 +1258,15 @@ local function setup(inst: Instance)
 		hinge.CFrame = closedCF
 		setLed(door, LED_LOCKED)
 		setDisplay(door, "ENTER CODE", TEXT_IDLE)
+	end
+
+	-- Set up while already sealed: a re-tag, or a State edit in Studio during
+	-- the beat. The leaf is posed closed above, so only the panel and the plate
+	-- need telling — and without this the door would sit there reading ENTER
+	-- CODE while refusing every code.
+	if isSealed(door) then
+		setDisplay(door, "SEALED", TEXT_SEALED)
+		setExitOffered(door, true)
 	end
 end
 
