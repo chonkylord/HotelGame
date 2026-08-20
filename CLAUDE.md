@@ -176,6 +176,14 @@ port publicly, and don't echo the token into files, logs, or commits. Every
 other rule here still holds over this path too — script source stays in `src/`
 files edited with your file tools, never written through a `bl_*` call.
 
+## Building any GUI
+
+**Read `AGENTS.md` before writing a popup, toast, HUD element, billboard or
+plaque.** The place has a settled visual language — brass-over-lacquer signage,
+aged paper documents, and a bone-and-outline meter layer — with fixed palettes,
+four fonts with assigned jobs, and a `DisplayOrder` ladder that is already full.
+`AGENTS.md` has the recipes and the file to copy from for each kind of surface.
+
 ## Roblox & Luau conventions
 
 - **Server is authoritative.** Gameplay state, scoring, purchases, anything

@@ -137,6 +137,11 @@ local cycleEpoch: number? = nil
 local publishedPhase = ""
 local publishedEndsAt = 0
 
+-- How often the dormant server re-asks whether anyone who finished the intro
+-- has left the lobby yet. A third of a second is under the time it takes to
+-- walk through the lobby doorway, so the round still starts on the step out.
+local ARM_POLL_INTERVAL = 0.34
+
 local waypoints: { PathWaypoint } = {}
 local waypointIndex = 1
 local pathGoal: Vector3? = nil
@@ -457,7 +462,8 @@ local function bindCharacter(player: Player, character: Model)
 end
 
 --[[
-	The round starts when somebody finishes their first stay.
+	The round starts when somebody finishes their first stay AND is out of the
+	lobby.
 
 	Not at server start, and not when Joel's rig loads. The intro deliberately
 	walks a new player through a lit, safe hotel to a room that seals behind
@@ -467,35 +473,98 @@ end
 	anybody, and a player walking out of room 1 into the middle of a window
 	rather than the start of one.
 
+	The lobby half of the condition covers the cases COMPLETE alone does not.
+	A player who rejoins already carrying COMPLETE is classified the instant
+	they connect, standing on the lobby spawn — the old rule started the round
+	there and then, so their first minute of a hunt window was spent in the one
+	room the hotel treats as a safe arrival. The same happens to anybody who
+	rides back down to the desk before the round has begun. Neither is a round
+	that has actually started; the round starts when somebody is out in the
+	hotel.
+
 	Keyed on reaching COMPLETE rather than on the absence of an intro stage. The
 	two readings differ for a player the server has not classified yet, and here
 	the positive one is right: an unclassified player should not start the round
 	on everyone else's behalf. The opposite choice is the correct one a few lines
 	up in bindingIsHuntable, for the opposite reason — see the note there.
 
+	One player out of the lobby is enough. Requiring all of them would hand any
+	single person standing at the desk a veto over everyone else's round, which
+	is the same "waiting is the correct play" failure the cycle exists to remove.
+
 	It arms once and stays armed. Later joiners inherit the running cycle, and
 	the plaque appears for each of them as they finish their own first stay.
 ]]
+
+-- Players who finished the intro while still in the lobby. Held here so the
+-- round can start the moment one of them walks out, rather than waiting for
+-- some other event to happen to re-ask the question.
+local awaitingLobbyExit: { [Player]: true } = {}
+local lastArmPoll = 0
+
+--[[
+	False whenever the answer is not knowable.
+
+	A player mid-respawn has no HumanoidRootPart to classify, and guessing in
+	that gap would start the round on a position nobody is standing at. Waiting
+	costs at most a respawn; the next poll asks again.
+]]
+local function isOutOfLobby(player: Player): boolean
+	local character = player.Character
+	local root = character and character:FindFirstChild("HumanoidRootPart")
+	if not root or not root:IsA("BasePart") then
+		return false
+	end
+	return JoelConfig.floorOf(root.Position) ~= "Lobby"
+end
+
 local function armCycle()
 	if cycleEpoch then
 		return
 	end
 	cycleEpoch = Workspace:GetServerTimeNow()
-	print("[JoelService] first stay over — the hunt cycle is running")
+	table.clear(awaitingLobbyExit)
+	print("[JoelService] first stay over and out of the lobby — the hunt cycle is running")
+end
+
+local function considerArming(player: Player)
+	if cycleEpoch then
+		return
+	end
+	if player:GetAttribute(OnboardingConfig.ATTRIBUTE) ~= OnboardingConfig.COMPLETE then
+		return
+	end
+	if isOutOfLobby(player) then
+		armCycle()
+	else
+		awaitingLobbyExit[player] = true
+	end
+end
+
+-- Cheap enough to run on a timer rather than on movement: a handful of players,
+-- one vector comparison each, and it stops entirely the moment the round starts.
+local function pollLobbyExit(now: number)
+	if cycleEpoch or now - lastArmPoll < ARM_POLL_INTERVAL then
+		return
+	end
+	lastArmPoll = now
+	for player in awaitingLobbyExit do
+		if player.Parent == nil then
+			awaitingLobbyExit[player] = nil
+		elseif isOutOfLobby(player) then
+			armCycle()
+			return
+		end
+	end
 end
 
 local function watchOnboarding(player: Player, connections: { RBXScriptConnection })
 	local attribute = OnboardingConfig.ATTRIBUTE
-	if player:GetAttribute(attribute) == OnboardingConfig.COMPLETE then
-		armCycle()
-		return
-	end
+	considerArming(player)
 	table.insert(
 		connections,
 		player:GetAttributeChangedSignal(attribute):Connect(function()
-			if player:GetAttribute(attribute) == OnboardingConfig.COMPLETE then
-				armCycle()
-			end
+			considerArming(player)
 		end)
 	)
 end
@@ -530,6 +599,7 @@ end
 
 local function disconnectPlayer(player: Player)
 	bindGeneration[player] = (bindGeneration[player] or 0) + 1
+	awaitingLobbyExit[player] = nil
 	unbindPlayer(player, nil)
 	local connections = playerConnections[player]
 	if connections then
@@ -1302,11 +1372,14 @@ RunService.Heartbeat:Connect(function(delta: number)
 		return
 	end
 
+	pollLobbyExit(now)
+
 	local epoch = cycleEpoch
 	if not epoch then
-		-- Nobody has left their first stay, so there is no round to hunt in. He
-		-- waits where he was placed, and with no phase published the plaque stays
-		-- off every screen rather than counting down nothing.
+		-- Nobody has left their first stay and got out of the lobby, so there is
+		-- no round to hunt in. He waits where he was placed, and with no phase
+		-- published the plaque stays off every screen rather than counting down
+		-- nothing.
 		forgetTarget()
 		currentSpeed = 0
 		joelHumanoid.WalkSpeed = 0

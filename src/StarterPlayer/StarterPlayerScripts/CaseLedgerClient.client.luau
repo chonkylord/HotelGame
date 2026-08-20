@@ -217,7 +217,10 @@ glass.AnchorPoint = Vector2.new(0.5, 0.5)
 glass.BackgroundTransparency = 1
 glass.Image = GLASS_IMAGE
 glass.Position = UDim2.fromScale(0.5, 0.5)
-glass.Size = UDim2.fromScale(0.68, 0.68)
+-- Sized against the disc, not the rim: the art has its own transparent margin,
+-- so the glass reads smaller than this number suggests. Much past this and it
+-- starts crowding the brass edge.
+glass.Size = UDim2.fromScale(0.78, 0.78)
 glass.ZIndex = 2
 glass.Parent = button
 
