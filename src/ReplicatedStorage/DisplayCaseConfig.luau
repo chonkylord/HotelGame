@@ -40,6 +40,18 @@ DisplayCaseConfig.StruckEvent = "GlassStruck"
 DisplayCaseConfig.MalletName = "Mallet"
 DisplayCaseConfig.PropFolderName = "PlacedTools"
 
+-- Set on an exhibit to say whose it is. Absent on ordinary treasure, which
+-- anybody may take once the glass is gone.
+--
+-- The two gates are deliberately separate. The mallet decides who can OPEN a
+-- case; this decides who can take what is inside it. So the Sun Sword needs a
+-- Muscle to break the glass and a Superman to lift it, which is a two-class
+-- handshake rather than a lock one player can pick alone.
+--
+-- Read with ClassDefinitions.hasClass, so the value is a class name and the
+-- same string works for the sack's own gate.
+DisplayCaseConfig.ExhibitClassAttribute = "ExhibitClass"
+
 -- The class gate is not named here. MalletService and SackService both decide
 -- it with ClassDefinitions.hasClass, and repeating the string "Muscle" in a
 -- second module is how the two ends of one rule drift apart.
@@ -122,6 +134,39 @@ local REFUSALS: { [string]: Refusal } = {
 		line = "Thou hast the mallet upon thee",
 		accent = "calm",
 	},
+	-- The wrong hands on a claimed exhibit. Worth its own line rather than
+	-- reusing Class: that one is about a mallet too heavy to lift, and this is
+	-- about a relic that has already chosen somebody else.
+	--
+	-- This is the fallback. An exhibit that names its own key below gets a line
+	-- that says WHICH hands, because a refusal the player cannot learn from is
+	-- just a locked door.
+	Exhibit = {
+		header = "— N O T   T H Y   R E L I C —",
+		line = "The glass yields, but the prize knows its own",
+		accent = "warn",
+	},
+	--[[
+		One per relic, each naming its class by what that class DOES rather than
+		by the word on the podium. "The cape", "the arm that breaks doors", "one
+		who reads" are all unmistakable to a player who has picked a class and
+		still read as the hotel talking rather than as a permissions error.
+	]]
+	SunSword = {
+		header = "— N O T   T H Y   L I G H T —",
+		line = "The sun lifts only for the guest in the cape",
+		accent = "warn",
+	},
+	Ironhand = {
+		header = "— A   D E A D   W E I G H T —",
+		line = "It shuts for every hand but the one that breaks doors",
+		accent = "warn",
+	},
+	MasterCipher = {
+		header = "— O N L Y   N O I S E —",
+		line = "The screen wakes for one who reads its tongue, no other",
+		accent = "warn",
+	},
 }
 
 DisplayCaseConfig.Refusals = REFUSALS
@@ -130,6 +175,11 @@ DisplayCaseConfig.Refusals = REFUSALS
 -- plaque for.
 DisplayCaseConfig.RefusalClass = "Class"
 DisplayCaseConfig.RefusalCarrying = "Carrying"
+DisplayCaseConfig.RefusalExhibit = "Exhibit"
+
+-- Optional per-exhibit override, naming one of the keys above. Absent, an
+-- exhibit refuses with the generic Exhibit line.
+DisplayCaseConfig.ExhibitRefusalAttribute = "ExhibitRefusal"
 
 -- How long the notice hangs there before it fades.
 DisplayCaseConfig.RefusalSeconds = 3.25

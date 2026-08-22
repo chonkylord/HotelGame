@@ -1,13 +1,15 @@
 local part = script.Parent
+local players = game:GetService("Players")
 local debounce = false
 
 part.Touched:Connect(function(hit)
-	if hit.Parent:FindFirstChild("Humanoid") and debounce == false then
+	local character = hit.Parent
+	local humanoid = character and character:FindFirstChild("Humanoid")
+	local player = if character then players:GetPlayerFromCharacter(character) else nil
+	if humanoid and debounce == false and not (player and player:GetAttribute("AdminInvincible") == true) then
 		debounce = true
-		hit.Parent.Humanoid:TakeDamage(40)
-		wait(10)
+		humanoid:TakeDamage(40)
+		task.wait(10)
 		debounce = false
 	end
 end)
-
-

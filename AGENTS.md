@@ -4,8 +4,11 @@ Read this **before** writing any GUI: a popup, a toast, a HUD element, a
 world-space label, a prompt panel. The place has a settled visual language and
 the fastest way to make something look wrong is to invent a new one.
 
-`CLAUDE.md` covers how to work in this repo. This file covers only what things
-should look like and where they go.
+`CLAUDE.md` covers how to work in this repo. This file covers what things should
+look like and where they go. Sections 1–7 are the screen; [section
+8](#8-structure-in-the-world--props-sets-and-rooms) covers how physical props
+and sets are structured in the Explorer — **read it before building any room,
+set, or multi-part prop.**
 
 The rule underneath everything: **this is a hotel, not a game HUD.** Notices are
 brass signs screwed to walls. Documents are aged paper someone typed on. The
@@ -380,6 +383,81 @@ debug/dev surface belongs in this material, not the other three.
 
 ---
 
+## 8. Structure in the world — props, sets, and rooms
+
+Sections 1–7 are about screens. This one is about the parts they hang off, and
+it has one rule:
+
+**Never build a room, a set, or a scene as a single `Model`.** Group with
+`Folder`s. Reach for `Model` only when the thing genuinely moves, pivots, or is
+cloned as a unit.
+
+### Why it matters
+
+Studio's default click selects the **whole `Model`**, not the part you clicked.
+So a room built as one Model cannot be edited: you click a lamp to nudge it and
+you have selected the floor, the ceiling, every wall and all 300 parts with it.
+Drag by one stud and the room comes along. There is no way to fix a chair
+without a trip through the Explorer.
+
+A `Folder` has no such behaviour. Clicking a part inside a Folder selects **that
+part**. Folders nest as deep as you like at no cost — they are pure
+organisation, invisible at runtime, with no pivot, no bounding box, no
+selection footprint.
+
+This is not hypothetical. `BankVault` is currently one Model holding **303
+descendants**, and `VaultChamber` one Model holding **67**. Both are listed in
+[Known gaps](#known-gaps).
+
+### Model vs Folder
+
+Use a **`Model`** only when at least one is true:
+
+- It **moves or pivots as a unit** — `:PivotTo`, `:MoveTo`, a tweened door leaf.
+  `VaultChamberBuilder`'s `door`, `leaf`, and `keypad` are correct Models: each
+  has a `PrimaryPart` and swings.
+- It is **cloned or destroyed as a unit** — a spawnable pickup, a loot crate.
+  `StorageRoomLootService`'s `box`/`crate` and `RescueWorldBuilder`'s `pickup`
+  are correct.
+- Code needs **`PrimaryPart`, `:GetBoundingBox()`, or `:ScaleTo()`** on it.
+- It carries a `Humanoid`.
+
+Use a **`Folder`** for everything else — which is most of it. Static geometry,
+room shells, decor, lighting props, anything that exists to be looked at and
+never addressed as one object.
+
+### The shape to build
+
+Folders for the layout, small Models only at the leaves where something actually
+articulates:
+
+```
+Workspace
+└── BankVault                (Folder — the room)
+    ├── Shell                (Folder — floor, ceiling, walls)
+    ├── Decor                (Folder — individually selectable props)
+    │   ├── DisplayCase_1    (Folder — its panes stay separate)
+    │   └── Pedestal_3
+    └── DoorAssembly         (Model — swings, has a PrimaryPart)
+```
+
+The room is a Folder, so every prop stays clickable. The door is a Model,
+because it is the one thing that moves.
+
+### Tests before you wrap things in a Model
+
+- **"Does this ever move as one piece?"** No → `Folder`.
+- **"Would I ever want to click one part of this in isolation?"** Yes →
+  `Folder`. This is the one that catches rooms.
+- **Count the descendants.** A Model past roughly 20 is worth a second look; one
+  past 50 is almost certainly a Folder wearing the wrong hat.
+
+Attributes, tags, and `CollectionService` all work identically on a `Folder`, so
+tagging and lookups lose nothing in the swap. What you lose is `PrimaryPart` and
+pivot helpers — which is precisely the signal that it should have been a Model.
+
+---
+
 ## Known gaps
 
 Recorded here rather than silently fixed:
@@ -390,6 +468,14 @@ Recorded here rather than silently fixed:
   `playerGui:FindFirstChild(name)` filtered by `IsA("ScreenGui")`, so that entry
   never matches and the ledger dock does not currently yield during Noel's
   dialogue.
+- `BankVault` (`BankVaultBuilder`) is one `Model` with 34 direct children and
+  **303 descendants**; `VaultChamber` (`VaultChamberBuilder`) is one `Model`
+  with 18 direct children and **67 descendants**. Both should be `Folder`s per
+  [section 8](#8-structure-in-the-world--props-sets-and-rooms) — as they stand,
+  clicking any single part in either room selects the entire room. The nested
+  door/leaf/keypad Models inside them are correct and should stay Models. Not
+  changed yet because both builders set attributes on the room root and other
+  services look it up by name, so the swap needs those call sites checked.
 - The paper palette exists in two cuts (`ClueClientUI`/`CaseLedgerClient` vs
   `RouletteClientUI`) and the brass palette is copied into three files. Nothing
   shares a palette module. That is survivable, but a fourth brass surface is the

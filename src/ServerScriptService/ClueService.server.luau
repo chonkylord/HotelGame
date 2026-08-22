@@ -30,6 +30,7 @@ local Workspace = game:GetService("Workspace")
 
 local ClassDefinitions = require(ReplicatedStorage:WaitForChild("ClassDefinitions"))
 local ClueConfig = require(ReplicatedStorage:WaitForChild("ClueConfig"))
+local DisplayCaseConfig = require(ReplicatedStorage:WaitForChild("DisplayCaseConfig"))
 local JoelConfig = require(ReplicatedStorage:WaitForChild("JoelConfig"))
 local SackConfig = require(ReplicatedStorage:WaitForChild("SackConfig"))
 local ClueChain = require(ServerStorage:WaitForChild("ClueChain"))
@@ -55,6 +56,8 @@ local ROUTE_REROLL_ATTEMPTS = 8
 -- driving the saved one instead.
 local RELIC_CHAMBER_NAME = "VaultChamber"
 local RELIC_FOLDER_NAME = "Relics"
+-- ObjectValue inside a relic model, pointing at the vitrine it stands in.
+local RELIC_CASE_VALUE = "Case"
 local PLINTH_STONE_NAME = "Stone"
 
 -- Hiding an adopted plinth overwrites properties the user chose, so the chosen
@@ -96,6 +99,15 @@ local openEvent = ensure(remotes, ClueConfig.OpenEvent, "RemoteEvent") :: Remote
 local submitEvent = ensure(remotes, ClueConfig.SubmitEvent, "RemoteEvent") :: RemoteEvent
 local resultEvent = ensure(remotes, ClueConfig.ResultEvent, "RemoteEvent") :: RemoteEvent
 local announceEvent = ensure(remotes, ClueConfig.AnnounceEvent, "RemoteEvent") :: RemoteEvent
+
+-- Not this service's folder: the brass refusal plaque belongs to the display
+-- cases, and MalletService, DisplayCaseService and this file all hang notices on
+-- it. Ensured the same way in all three, so whichever starts first creates it.
+local refusedEvent = ensure(
+	ensure(ReplicatedStorage, DisplayCaseConfig.RemotesFolder, "Folder"),
+	DisplayCaseConfig.RefusalEvent,
+	"RemoteEvent"
+) :: RemoteEvent
 
 local joelNoise = ensure(ServerStorage, ClueConfig.JoelNoiseEvent, "BindableEvent") :: BindableEvent
 local joelDefeat = ensure(ServerStorage, ClueConfig.JoelDefeatEvent, "BindableEvent") :: BindableEvent
@@ -460,6 +472,46 @@ local function setAnimatedLocked(animated: ContainerKit.AnimatedSet, locked: boo
 	ContainerKit.updatePromptText(animated)
 end
 
+--[[
+	Is this relic still behind its glass?
+
+	The two cased relics stand INSIDE a vitrine without being children of it,
+	which is deliberate -- a relic parented into a case would be tagged
+	Collectable by armContents the moment the glass went, turning a claimable
+	relic into ordinary sack loot, and it would also stop being a direct child of
+	the Relics folder, which is the only place findSavedPlinth looks.
+
+	So the link is an ObjectValue named Case inside the relic, pointing at the
+	vitrine. A relic with no such link has no glass in front of it and claims
+	exactly as it always did, which is what keeps an uncased Sunstone working.
+
+	The player-facing half of this is not here: the claim prompt already carries
+	RequiresLineOfSight, and intact panes are queryable, so the prompt is simply
+	invisible until somebody swings a mallet. This is the half that makes it
+	true rather than merely apparent.
+]]
+local function caseSealed(model: Model?): boolean
+	if not model then
+		return false
+	end
+	local link = model:FindFirstChild(RELIC_CASE_VALUE)
+	local case = if link and link:IsA("ObjectValue") then link.Value else nil
+	if not case or not case:IsDescendantOf(Workspace) then
+		return false
+	end
+	return case:GetAttribute(DisplayCaseConfig.CaseOpenedAttribute) ~= true
+end
+
+-- The live plinth for a relic id, from whichever table is holding it. Adopted
+-- models stay in adoptedPlinths for the whole session; relicModels only holds
+-- one while it is unclaimed and on show.
+local function relicPlinth(relicId: string?): Model?
+	if not relicId then
+		return nil
+	end
+	return relicModels[relicId] or adoptedPlinths[relicId]
+end
+
 refreshPrompts = function()
 	local activeRound = roundState
 	local activeIndex = if activeRound and activeRound.phase == ClueConfig.PhaseHunt then activeRound.index else -1
@@ -488,6 +540,7 @@ refreshPrompts = function()
 				and not relicClaimed[context.relicId :: string]
 				and vault ~= nil
 				and vault:GetAttribute(ClueConfig.VaultUnlockedAttribute) == true
+				and not caseSealed(relicPlinth(context.relicId))
 		elseif context.category == "ExitCode" then
 			enabled = activeRound ~= nil and activeRound.phase == ClueConfig.PhaseVault and joelWasDefeated
 		elseif context.nodeIndex == activeIndex then
@@ -1015,6 +1068,10 @@ type ClassRelic = {
 	attribute: string,
 	denial: string,
 	claimLine: string,
+	-- Which brass notice hangs over the plinth when the wrong class tries. A key
+	-- into DisplayCaseConfig.Refusals, so the relic and the Sun Sword refuse on
+	-- the same surface in the same voice rather than one plaque and one toast.
+	refusal: string,
 }
 
 local CLASS_RELICS: { ClassRelic } = {
@@ -1033,6 +1090,7 @@ local CLASS_RELICS: { ClassRelic } = {
 		attribute = ClueConfig.MuscleRelicAttribute,
 		denial = "The Ironhand does not lift for anyone but the muscle.",
 		claimLine = "%s takes the Ironhand. No door in the hotel is shut to them now.",
+		refusal = "Ironhand",
 	},
 	{
 		spec = {
@@ -1049,6 +1107,7 @@ local CLASS_RELICS: { ClassRelic } = {
 		attribute = ClueConfig.HackerRelicAttribute,
 		denial = "The cipher is meaningless to anyone who cannot read it.",
 		claimLine = "%s carries the Master Cipher. Keypads no longer hold them still.",
+		refusal = "MasterCipher",
 	},
 }
 
@@ -1349,20 +1408,43 @@ local function claimClassRelic(player: Player, context: PromptContext)
 		return
 	end
 
-	local classHeld = ClassDefinitions.hasClass(player, relic.class)
-	if not classHeld then
-		local nobodyHasIt = true
-		for _, other in Players:GetPlayers() do
-			if ClassDefinitions.hasClass(other, relic.class) then
-				nobodyHasIt = false
-				break
-			end
-		end
-		local unlocked = os.clock() - vaultOpenedAt >= ClueConfig.SupermanFallbackSeconds and nobodyHasIt
-		if not unlocked then
+	-- Hard class lock, no fallback. This used to open to anybody after
+	-- SupermanFallbackSeconds if nobody on the server held the class, on the
+	-- reasoning that a short-handed lobby should not lose a third of its payday.
+	-- That reasoning does not survive what these two became: they are no longer
+	-- abstract "relics" but a Hacker's laptop and a Muscle's gauntlet, worn on
+	-- the body of the class they belong to, and a Superman walking out wearing
+	-- the other man's glove reads as a bug rather than as a consolation.
+	--
+	-- Nothing is lost by locking them. Neither relic is on the critical path:
+	-- the vault is already open by the time they can be claimed, the treasure is
+	-- baggable without either, and the exit needs only the code. An unclaimed
+	-- relic is an exhibit nobody could use, which is what it should look like.
+	--
+	-- The Sunstone keeps ITS fallback deliberately -- see claimSunstone. That
+	-- one hands over the Solar Lance, which is the only answer to Joel, and
+	-- locking a server with no Superman out of its only weapon is a different
+	-- proposition entirely.
+	-- Silent, unlike the class refusal below. A sealed case means the prompt was
+	-- never on screen, so anybody reaching this line is a client asking for
+	-- something it was not offered -- and a plaque would be answering a question
+	-- no honest player asked.
+	if caseSealed(relicModels[relic.spec.id] or adoptedPlinths[relic.spec.id]) then
+		return
+	end
+
+	if not ClassDefinitions.hasClass(player, relic.class) then
+		-- The brass plaque rather than reject()'s toast. The toast is the clue
+		-- desk answering a submitted answer; this is an object in the room
+		-- refusing the hand on it, and it belongs over that object where the
+		-- mallet's refusal and the Sun Sword's already hang.
+		local focus = context.focus
+		if focus and focus:IsA("BasePart") then
+			refusedEvent:FireClient(player, focus, relic.refusal)
+		else
 			reject(player, relic.denial)
-			return
 		end
+		return
 	end
 
 	relicClaimed[relic.spec.id] = true

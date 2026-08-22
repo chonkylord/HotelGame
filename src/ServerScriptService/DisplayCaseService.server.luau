@@ -27,6 +27,7 @@ local ServerStorage = game:GetService("ServerStorage")
 local Workspace = game:GetService("Workspace")
 
 local BreakableGlass = require(ServerStorage:WaitForChild("BreakableGlass"))
+local ClassDefinitions = require(ReplicatedStorage:WaitForChild("ClassDefinitions"))
 local DisplayCaseConfig = require(ReplicatedStorage:WaitForChild("DisplayCaseConfig"))
 local SackConfig = require(ReplicatedStorage:WaitForChild("SackConfig"))
 
@@ -45,7 +46,30 @@ end
 
 local struckEvent = ensure(ServerStorage, DisplayCaseConfig.StruckEvent, "BindableEvent") :: BindableEvent
 
+-- The same folder and remote MalletService ensures, reached the same way: both
+-- files hang notices on the same plaque, and whichever starts first creates it.
+local remotes = ensure(ReplicatedStorage, DisplayCaseConfig.RemotesFolder, "Folder")
+local refusedEvent = ensure(remotes, DisplayCaseConfig.RefusalEvent, "RemoteEvent") :: RemoteEvent
+
 -- Contents --------------------------------------------------------------------
+
+--[[
+	The case an instance belongs to, if any.
+
+	Declared up here rather than beside the breaking code because taking an
+	exhibit needs it as much as hitting one does: both have to answer "which
+	vitrine is this, and is it open yet?"
+]]
+local function caseFor(part: Instance): Model?
+	local node: Instance? = part
+	while node and node ~= Workspace do
+		if node:IsA("Model") and CollectionService:HasTag(node, DisplayCaseConfig.CaseTag) then
+			return node
+		end
+		node = node.Parent
+	end
+	return nil
+end
 
 local function playerRoot(player: Player): BasePart?
 	local character = player.Character
@@ -75,6 +99,31 @@ local function takeExhibit(player: Player, tool: Tool, prompt: ProximityPrompt)
 		return
 	end
 	if (root.Position - handle.Position).Magnitude > DisplayCaseConfig.PromptDistance + 4 then
+		return
+	end
+
+	-- The glass first, always. A prompt only exists because armContents ran, and
+	-- armContents only runs on a shatter -- but existence is not authority. A
+	-- prompt saved into the place by a Studio run that broke a case, or a client
+	-- asking to trigger one it should not have, both arrive here looking exactly
+	-- like a legitimate press. An exhibit standing loose in the world, in no case
+	-- at all, is unaffected: there is no glass for it to be behind.
+	local owningCase = caseFor(tool)
+	if owningCase and owningCase:GetAttribute(DisplayCaseConfig.CaseOpenedAttribute) ~= true then
+		return
+	end
+
+	-- Range is checked before entitlement, as in MalletService: a refusal has to
+	-- appear over an exhibit the player is genuinely standing at, not across the
+	-- treasury. An exhibit with no ExhibitClass belongs to whoever gets there.
+	local required = tool:GetAttribute(DisplayCaseConfig.ExhibitClassAttribute)
+	if typeof(required) == "string" and not ClassDefinitions.hasClass(player, required) then
+		local key = tool:GetAttribute(DisplayCaseConfig.ExhibitRefusalAttribute)
+		refusedEvent:FireClient(
+			player,
+			handle,
+			if typeof(key) == "string" then key else DisplayCaseConfig.RefusalExhibit
+		)
 		return
 	end
 
@@ -128,6 +177,14 @@ local function armContents(case: Model): number
 			armTool(child)
 			armed += 1
 		elseif child:IsA("Model") then
+			-- Carry the exhibit's own gate onto the sack before tagging it.
+			-- Without this, a class-locked Model exhibit is locked against E and
+			-- wide open to F, which is the same hole SackConfig.RequiredClass
+			-- exists to close for the mallet.
+			local required = child:GetAttribute(DisplayCaseConfig.ExhibitClassAttribute)
+			if typeof(required) == "string" then
+				child:SetAttribute(SackConfig.RequiredClassAttribute, required)
+			end
 			if not CollectionService:HasTag(child, SackConfig.CollectableTag) then
 				CollectionService:AddTag(child, SackConfig.CollectableTag)
 			end
@@ -138,17 +195,6 @@ local function armContents(case: Model): number
 end
 
 -- Breaking --------------------------------------------------------------------
-
-local function caseFor(part: BasePart): Model?
-	local node: Instance? = part
-	while node and node ~= Workspace do
-		if node:IsA("Model") and CollectionService:HasTag(node, DisplayCaseConfig.CaseTag) then
-			return node
-		end
-		node = node.Parent
-	end
-	return nil
-end
 
 struckEvent.Event:Connect(function(player: any, pane: any, impact: any)
 	if typeof(player) ~= "Instance" or not player:IsA("Player") or player.Parent ~= Players then
@@ -212,6 +258,13 @@ local function sealExhibit(tool: Tool)
 	local handle = tool:FindFirstChild("Handle")
 	if handle and handle:IsA("BasePart") then
 		handle.CanTouch = false
+		-- A prompt is a runtime thing that should never have reached the place
+		-- file, but a Studio run that smashed a case and was then saved puts one
+		-- there, and it would offer E on a sealed vitrine from the first frame.
+		local stale = handle:FindFirstChild(TAKE_PROMPT_NAME)
+		if stale then
+			stale:Destroy()
+		end
 	end
 end
 
